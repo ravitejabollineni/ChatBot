@@ -1,0 +1,122 @@
+@implements IDisposable
+
+@using ChatBot.Web.Features.Chat.Services
+@using ChatBot.Web.Features.Chat.State
+@using Microsoft.AspNetCore.Components.Web
+
+@inject ChatState ChatState
+@inject ChatUiService ChatUiService
+
+<div class="conversation-view">
+    @if (ChatState.CurrentConversation is null && !isBusy)
+    {
+        <div class="welcome-state">
+            <div class="welcome-state__content">
+                <h2>How can I help today?</h2>
+                <p>Select an existing conversation or start a fresh one.</p>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="message-list">
+            @if (ChatState.CurrentConversation is not null)
+            {
+                @foreach (var message in ChatState.CurrentConversation.Messages)
+                {
+                    var isUser = string.Equals(message.Role, "user", StringComparison.OrdinalIgnoreCase);
+
+                    <div class="message-bubble @(isUser ? "message-bubble--user" : "message-bubble--assistant")">
+                        <div class="message-bubble__role">@(isUser ? "You" : "Assistant")</div>
+                        <div class="message-bubble__content">@message.Content</div>
+                    </div>
+                }
+            }
+
+            @if (isBusy)
+            {
+                <div class="message-bubble message-bubble--assistant message-bubble--thinking">
+                    <div class="message-bubble__role">Assistant</div>
+                    <div class="message-bubble__content">
+                        <div class="thinking-indicator" aria-label="Assistant is processing your message" role="status">
+                            <span class="thinking-indicator__dot"></span>
+                            <span class="thinking-indicator__dot"></span>
+                            <span class="thinking-indicator__dot"></span>
+                            <span class="thinking-indicator__label">Assistant is thinking</span>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+
+    <div class="message-input">
+        <textarea class="form-control"
+                  rows="3"
+                  @bind-value="draftMessage"
+                  @bind-value:event="oninput"
+                  @onkeydown="OnTextAreaKeyDownAsync"
+                  placeholder="Type your message..."
+                  disabled="@isBusy"></textarea>
+
+        <button class="btn btn-primary message-input__send"
+                @onclick="SendAsync"
+                disabled="@isBusy">
+            @(isBusy ? "Thinking..." : "Send")
+        </button>
+    </div>
+</div>
+
+@code {
+    private string draftMessage = string.Empty;
+    private bool isBusy;
+
+    protected override void OnInitialized()
+    {
+        ChatState.StateChanged += OnStateChanged;
+    }
+
+    private void OnStateChanged()
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        ChatState.StateChanged -= OnStateChanged;
+    }
+
+    private async Task SendAsync()
+    {
+        if (string.IsNullOrWhiteSpace(draftMessage))
+            return;
+
+        isBusy = true;
+
+        try
+        {
+            if (ChatState.SelectedConversationId is null)
+            {
+                await ChatUiService.CreateConversationAsync();
+            }
+
+            await ChatUiService.SendMessageAsync(
+                ChatState.SelectedModel,
+                draftMessage);
+
+            draftMessage = string.Empty;
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+
+    private async Task OnTextAreaKeyDownAsync(KeyboardEventArgs args)
+    {
+        if (args.Key is "Enter" && !args.ShiftKey)
+        {
+            await SendAsync();
+        }
+    }
+}

@@ -1,0 +1,16 @@
+<Project Sdk="Aspire.AppHost.Sdk/13.2.4">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <UserSecretsId>caf5e86b-6132-4f51-b8e7-f04b0064816b</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ChatBot.ApiService\ChatBot.Api.csproj" />
+    <ProjectReference Include="..\ChatBot.Web\ChatBot.Web.csproj" />
+  </ItemGroup>
+
+</Project>

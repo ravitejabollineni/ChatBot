@@ -1,0 +1,50 @@
+﻿@using ChatBot.Web.Features.Chat.State
+@using ChatBot.Web.Features.Chat.Services
+
+@inject ChatState ChatState
+@inject ChatUiService ChatUiService
+
+<div class="message-input">
+    <textarea class="form-control"
+              rows="3"
+              @bind="message"
+              placeholder="Type your message..."></textarea>
+
+    <button class="btn btn-primary message-input__send"
+            @onclick="SendAsync"
+            disabled="@isBusy">
+        Send
+    </button>
+</div>
+
+@code
+{
+    private string message = string.Empty;
+    private bool isBusy;
+
+    private async Task SendAsync()
+    {
+        if (string.IsNullOrWhiteSpace(message))
+            return;
+
+        isBusy = true;
+
+        try
+        {
+            if (ChatState.SelectedConversationId is null)
+            {
+                await ChatUiService.CreateConversationAsync();
+            }
+
+            await ChatUiService.SendMessageAsync(
+                ChatState.SelectedModel,
+                message);
+
+            message = string.Empty;
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+}

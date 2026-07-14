@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dotnet --version)",
+      "Bash(dotnet run *)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:5347/health)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:5090/health)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:5090/chat)",
+      "Bash(curl -sk -o /dev/null -w \"%{http_code}\\\\n\" https://localhost:7020/chat)",
+      "Bash(curl -s http://localhost:5347/api/conversations)",
+      "Bash(curl *)",
+      "WebSearch",
+      "Bash(mkdir -p /tmp/refit-test)",
+      "Read(//tmp/**)",
+      "Bash(dotnet new *)",
+      "Bash(dotnet add *)",
+      "Bash(dotnet build *)",
+      "Bash(ASPNETCORE_ENVIRONMENT=Development ASPNETCORE_URLS=http://localhost:5347 dotnet run --project ChatBot.ApiService/ChatBot.Api.csproj --no-build -c Debug)",
+      "Bash(tee /tmp/api-run.log)"
+    ]
+  }
+}

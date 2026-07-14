@@ -1,0 +1,51 @@
+﻿@using ChatBot.Web.Features.Chat.State
+@using ChatBot.Web.Features.Chat.Services
+
+@inject ChatState ChatState
+@inject ChatUiService ChatUiService
+
+<div class="conversation-list">
+    @if (ChatState.Conversations.Count == 0)
+    {
+        <div class="empty-state">
+            <p>No conversations yet.</p>
+            <span>Start a new chat to begin.</span>
+        </div>
+    }
+    else
+    {
+        @foreach (var conversation in ChatState.Conversations)
+        {
+            var isActive = ChatState.SelectedConversationId == conversation.ConversationId;
+
+            <button class="conversation-item @(isActive ? "conversation-item--active" : string.Empty)"
+                    @onclick="() => SelectConversationAsync(conversation.ConversationId)">
+                <span class="conversation-item__title">Conversation @conversation.ConversationId.ToString("N").Substring(0, 8)</span>
+                <span class="conversation-item__meta">@conversation.LastUpdatedAt.ToLocalTime().ToString("MMM d")</span>
+            </button>
+        }
+    }
+</div>
+
+@code
+{
+    protected override void OnInitialized()
+    {
+        ChatState.StateChanged += OnStateChanged;
+    }
+
+    private async Task SelectConversationAsync(Guid conversationId)
+    {
+        await ChatUiService.LoadConversationAsync(conversationId);
+    }
+
+    private void OnStateChanged()
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        ChatState.StateChanged -= OnStateChanged;
+    }
+}

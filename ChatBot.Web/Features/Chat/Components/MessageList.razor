@@ -1,0 +1,24 @@
+﻿@using ChatBot.Web.Features.Chat.State
+
+@inject ChatState ChatState
+
+<div class="message-list">
+    @if (ChatState.CurrentConversation?.Messages is null || ChatState.CurrentConversation.Messages.Count == 0)
+    {
+        <div class="message-list__empty">
+            <p>No messages yet. Start the conversation.</p>
+        </div>
+    }
+    else
+    {
+        @foreach (var message in ChatState.CurrentConversation.Messages)
+        {
+            var isUser = string.Equals(message.Role, "user", StringComparison.OrdinalIgnoreCase);
+
+            <div class="message-bubble @(isUser ? "message-bubble--user" : "message-bubble--assistant")">
+                <div class="message-bubble__role">@(isUser ? "You" : "Assistant")</div>
+                <div class="message-bubble__content">@message.Content</div>
+            </div>
+        }
+    }
+</div>
