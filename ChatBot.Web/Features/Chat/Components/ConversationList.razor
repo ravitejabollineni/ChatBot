@@ -1,4 +1,6 @@
-﻿@using ChatBot.Web.Features.Chat.State
+@implements IDisposable
+
+@using ChatBot.Web.Features.Chat.State
 @using ChatBot.Web.Features.Chat.Services
 
 @inject ChatState ChatState
@@ -7,9 +9,9 @@
 <div class="conversation-list">
     @if (ChatState.Conversations.Count == 0)
     {
-        <div class="empty-state">
-            <p>No conversations yet.</p>
-            <span>Start a new chat to begin.</span>
+        <div class="empty-state" style="display: block;">
+            <div>No conversations yet.</div>
+            <div>Start a new chat to begin.</div>
         </div>
     }
     else

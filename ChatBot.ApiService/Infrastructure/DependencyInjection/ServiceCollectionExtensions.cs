@@ -37,6 +37,8 @@ public static class ServiceCollectionExtensions
 
         services.Configure<AzureOpenAiOptions>(configuration.GetSection(AzureOpenAiOptions.SectionName));
 
+        services.Configure<SystemPromptOptions>(configuration.GetSection(SystemPromptOptions.SectionName));
+
         services.AddSingleton(serviceProvider =>
         {
             var options = serviceProvider
