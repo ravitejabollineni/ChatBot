@@ -30,19 +30,6 @@
 
     <section class="chat-panel">
         <header class="chat-panel__header">
-            <div>
-                <p class="eyebrow">Model</p>
-                <div class="model-selector">
-                    <select class="form-select form-select-sm"
-                            @bind="selectedModel"
-                            @bind:after="OnModelChanged">
-                        <option value="gpt-4.1-mini">GPT-4.1 Mini</option>
-                        <option value="gpt-4.1">GPT-4.1</option>
-                        <option value="gpt-4o">GPT-4o</option>
-                    </select>
-                </div>
-            </div>
-
             <div class="chat-panel__status">
                 <span class="status-dot"></span>
                 Ready to help
@@ -63,12 +50,10 @@
 </div>
 
 @code
-{
-    private string selectedModel = "gpt-4.1-mini";
+{    
 
     protected override async Task OnInitializedAsync()
-    {
-        selectedModel = ChatState.SelectedModel;
+    {       
         ChatState.StateChanged += OnStateChanged;
         await ChatUiService.InitializeAsync();
     }
@@ -76,11 +61,6 @@
     private async Task CreateConversationAsync()
     {
         await ChatUiService.CreateConversationAsync();
-    }
-
-    private void OnModelChanged()
-    {
-        ChatState.SetModel(selectedModel);
     }
 
     private void OnStateChanged()

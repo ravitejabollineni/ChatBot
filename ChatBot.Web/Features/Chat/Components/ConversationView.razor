@@ -2,6 +2,7 @@
 
 @using ChatBot.Web.Features.Chat.Services
 @using ChatBot.Web.Features.Chat.State
+@using Markdig
 @using Microsoft.AspNetCore.Components.Web
 
 @inject ChatState ChatState
@@ -24,11 +25,25 @@
             {
                 @foreach (var message in ChatState.CurrentConversation.Messages)
                 {
+                    if (string.Equals(message.Role, "system", StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
                     var isUser = string.Equals(message.Role, "user", StringComparison.OrdinalIgnoreCase);
 
                     <div class="message-bubble @(isUser ? "message-bubble--user" : "message-bubble--assistant")">
                         <div class="message-bubble__role">@(isUser ? "You" : "Assistant")</div>
-                        <div class="message-bubble__content">@message.Content</div>
+                        <div class="message-bubble__content">
+                            @if (isUser)
+                            {
+                                @message.Content
+                            }
+                            else
+                            {
+                                @RenderMarkdown(message.Content)
+                            }
+                        </div>
                     </div>
                 }
             }
@@ -68,8 +83,16 @@
 </div>
 
 @code {
+    private static readonly MarkdownPipeline MarkdownPipeline = new MarkdownPipelineBuilder()
+        .UseAdvancedExtensions()
+        .DisableHtml()
+        .Build();
+
     private string draftMessage = string.Empty;
     private bool isBusy;
+
+    private static MarkupString RenderMarkdown(string content) =>
+        new(Markdown.ToHtml(content, MarkdownPipeline));
 
     protected override void OnInitialized()
     {
