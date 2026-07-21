@@ -1,4 +1,6 @@
-﻿namespace ChatBot.Api.Features.Conversations.Get;
+﻿using ChatBot.Api.Domain.ValueObjects;
+
+namespace ChatBot.Api.Features.Conversations.Get;
 
 public sealed record GetConversationResponse(
     Guid ConversationId,
@@ -10,4 +12,5 @@ public sealed record MessageResponse(
     Guid MessageId,
     string Role,
     string Content,
-    DateTimeOffset CreatedAt);
+    DateTimeOffset CreatedAt,
+    TokenUsage? TokenUsage);

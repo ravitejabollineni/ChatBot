@@ -2,13 +2,14 @@
 using ChatBot.Api.Domain.Enums;
 using ChatBot.Api.Features.Chat.Contracts;
 using ChatBot.Api.Features.Chat.Models;
-using ChatBot.Api.Infrastructure.Persistence;
+using ChatBot.Api.Features.Conversations.Contracts;
 
 namespace ChatBot.Api.Features.Chat.Services;
 
 public sealed class ChatService(
-    IConversationRepository repository,
+    IConversationService conversationService,
     IChatProviderFactory providerFactory,
+    ITokenManager tokenManager,
     TimeProvider timeProvider)
     : IChatService
 {
@@ -16,15 +17,9 @@ public sealed class ChatService(
         ChatRequest request,
         CancellationToken cancellationToken = default)
     {
-        var conversation = await repository.GetByIdAsync(
+        var conversation = await conversationService.GetRequiredAsync(
             request.ConversationId,
             cancellationToken);
-
-        if (conversation is null)
-        {
-            throw new InvalidOperationException(
-                $"Conversation '{request.ConversationId}' was not found.");
-        }
 
         var now = timeProvider.GetUtcNow();
 
@@ -44,20 +39,29 @@ public sealed class ChatService(
             conversation.Messages,
             cancellationToken);
 
+        var tokenUsage = await tokenManager.CalculateAsync(
+            conversation.Messages,
+            assistantResponse,
+            request.Model,
+            cancellationToken);
+
         var assistantMessage = new ConversationMessage(
             ChatRole.Assistant,
             assistantResponse,
-            timeProvider.GetUtcNow());
+            timeProvider.GetUtcNow(),
+            tokenUsage);
 
         conversation.AddMessage(
             assistantMessage,
             assistantMessage.CreatedAt);
 
-        await repository.UpdateAsync(
+        await conversationService.SaveAsync(
             conversation,
             cancellationToken);
 
         return new ChatResponse(
-            assistantMessage.Content, assistantMessage.CreatedAt);
+            assistantMessage.Content,
+            assistantMessage.CreatedAt,
+            tokenUsage);
     }
 }

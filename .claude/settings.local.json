@@ -16,7 +16,10 @@
       "Bash(dotnet add *)",
       "Bash(dotnet build *)",
       "Bash(ASPNETCORE_ENVIRONMENT=Development ASPNETCORE_URLS=http://localhost:5347 dotnet run --project ChatBot.ApiService/ChatBot.Api.csproj --no-build -c Debug)",
-      "Bash(tee /tmp/api-run.log)"
+      "Bash(tee /tmp/api-run.log)",
+      "Read(//c/Users/raviteja_bollineni/.claude/plugins/data/codemie-inline/**)",
+      "Read(//c/Users/raviteja_bollineni/.claude/plugins/**)",
+      "Bash(find 'C:\\\\Users\\\\raviteja_bollineni/.claude' -maxdepth 2 -iname settings*.json)"
     ]
   }
 }

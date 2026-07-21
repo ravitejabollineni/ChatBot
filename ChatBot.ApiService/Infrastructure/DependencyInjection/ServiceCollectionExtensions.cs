@@ -9,6 +9,7 @@ using ChatBot.Api.Infrastructure.Persistence;
 using ChatBot.Api.Infrastructure.Providers.AzureOpenAI;
 using ChatBot.Api.Infrastructure.Providers.Factory;
 using ChatBot.Api.Infrastructure.Providers.OpenAI;
+using ChatBot.Api.Infrastructure.TokenManagement;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Options;
 using OpenAI;
@@ -29,9 +30,9 @@ public static class ServiceCollectionExtensions
 
         services.AddSingleton<IChatProviderFactory, ChatProviderFactory>();
 
-        services.AddScoped<IConversationService, ConversationService>();
-
         services.AddScoped<IChatService, ChatService>();
+
+        services.AddSingleton<ITokenManager, EstimatingTokenManager>();
 
         services.Configure<OpenAiOptions>(configuration.GetSection(OpenAiOptions.SectionName));
 

@@ -13,7 +13,15 @@ namespace ChatBot.Api.Features.Conversations.Contracts
             Guid conversationId,
             CancellationToken cancellationToken = default);
 
+        Task<Conversation> GetRequiredAsync(
+            Guid conversationId,
+            CancellationToken cancellationToken = default);
+
         Task<IReadOnlyCollection<Conversation>> ListAsync(
+            CancellationToken cancellationToken = default);
+
+        Task SaveAsync(
+            Conversation conversation,
             CancellationToken cancellationToken = default);
 
         Task DeleteAsync(

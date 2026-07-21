@@ -1,7 +1,10 @@
-﻿namespace ChatBot.Web.Features.Chat.Contracts.Conversation;
+﻿using ChatBot.Web.Contracts.Chat;
+
+namespace ChatBot.Web.Features.Chat.Contracts.Conversation;
 
 public sealed record MessageResponse(
     Guid MessageId,
     string Role,
     string Content,
-    DateTimeOffset CreatedAt);
+    DateTimeOffset CreatedAt,
+    TokenUsageResponse? TokenUsage);

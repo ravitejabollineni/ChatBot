@@ -1,4 +1,5 @@
 ﻿using ChatBot.Api.Domain.Enums;
+using ChatBot.Api.Domain.ValueObjects;
 
 namespace ChatBot.Api.Domain.Entities;
 
@@ -12,10 +13,13 @@ public sealed class ConversationMessage
 
     public DateTimeOffset CreatedAt { get; }
 
+    public TokenUsage? TokenUsage { get; }
+
     public ConversationMessage(
         ChatRole role,
         string content,
-        DateTimeOffset createdAt)
+        DateTimeOffset createdAt,
+        TokenUsage? tokenUsage = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(content);
 
@@ -23,5 +27,6 @@ public sealed class ConversationMessage
         Role = role;
         Content = content;
         CreatedAt = createdAt;
+        TokenUsage = tokenUsage;
     }
 }

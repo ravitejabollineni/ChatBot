@@ -44,6 +44,11 @@
                                 @RenderMarkdown(message.Content)
                             }
                         </div>
+
+                        @if (!isUser && message.TokenUsage is not null)
+                        {
+                            <TokenUsageSummary Usage="message.TokenUsage" />
+                        }
                     </div>
                 }
             }

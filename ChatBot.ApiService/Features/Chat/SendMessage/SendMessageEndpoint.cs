@@ -37,6 +37,7 @@ public sealed class SendMessageEndpoint(
                 ConversationId: request.ConversationId,
                 Model: request.Model,
                 Response: response.Response,
-                CreatedAt: response.CreatedAt));
+                CreatedAt: response.CreatedAt,
+                TokenUsage: response.TokenUsage));
     }
 }

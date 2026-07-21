@@ -27,6 +27,121 @@ The API is provider-agnostic: chat requests are routed through an `IChatProvider
 - OpenTelemetry (ASP.NET Core, HTTP client, runtime instrumentation) 1.15.x
 - Scalar.AspNetCore 2.16.11 (OpenAPI UI for the API)
 
+## Architecture
+
+The backend is layered by responsibility, and each layer only talks to the layer below through an interface:
+
+- **Endpoints** (`Features/*/​*Endpoint.cs`, FastEndpoints) — HTTP in/out only, no business logic.
+- **Application services** (`ChatService`, `ConversationService`) — orchestrate a use case.
+- **Abstractions** (`IConversationService`, `IChatProviderFactory` / `IChatProvider`, `ITokenManager`) — the only things application services depend on.
+- **Infrastructure** (`InMemoryConversationRepository`, `AzureOpenAiChatProvider`, `OpenAiChatProvider`, `EstimatingTokenManager`) — concrete, swappable implementations, registered in `ServiceCollectionExtensions.AddInfrastructure`.
+
+Notably, `ChatService` never talks to `IConversationRepository` directly — only `ConversationService` does. `ChatService` depends on `IConversationService`, which exposes two different lookup contracts for two different needs:
+
+- `GetAsync` — nullable "try get", returns `null` if the conversation doesn't exist. Used by `GetConversationEndpoint` to return an HTTP 404.
+- `GetRequiredAsync` — throws if the conversation doesn't exist. Used by `ChatService`, which has no message to send if the conversation it's replying to isn't there.
+
+Token usage is calculated the same way: `ChatService` doesn't count tokens itself. It hands `ITokenManager.CalculateAsync` the actual `ConversationMessage` collection sent to the provider plus the raw assistant response, and gets back a `TokenUsage` (input/output token counts, context limit, remaining budget, percentage used). `EstimatingTokenManager` is a character-length heuristic today; it can be swapped for a real tokenizer (e.g. Tiktoken) without touching `ChatService` or any endpoint.
+
+```mermaid
+graph TD
+    subgraph Web["ChatBot.Web (Blazor Server)"]
+        UI["Chat components<br/>(ConversationView, TokenUsageSummary)"]
+        ChatUiService
+        ChatState
+        IChatApi["IChatApi (Refit)"]
+        IConversationApi["IConversationApi (Refit)"]
+    end
+
+    subgraph Api["ChatBot.ApiService (FastEndpoints)"]
+        Endpoints["SendMessageEndpoint / GetConversationEndpoint /<br/>CreateConversationEndpoint / ListConversationEndpoint"]
+        ChatService
+        IConversationService
+        ConversationService
+        IConversationRepository
+        InMemoryConversationRepository
+        IChatProviderFactory
+        ChatProviderFactory
+        ITokenManager
+        EstimatingTokenManager
+    end
+
+    subgraph Providers["IChatProvider implementations"]
+        AzureOpenAiChatProvider
+        OpenAiChatProvider
+    end
+
+    UI --> ChatUiService
+    ChatUiService --> IChatApi
+    ChatUiService --> IConversationApi
+    IChatApi -- HTTP --> Endpoints
+    IConversationApi -- HTTP --> Endpoints
+
+    Endpoints --> ChatService
+    Endpoints --> IConversationService
+
+    ChatService --> IConversationService
+    ChatService --> IChatProviderFactory
+    ChatService --> ITokenManager
+
+    IConversationService --> ConversationService
+    ConversationService --> IConversationRepository
+    IConversationRepository --> InMemoryConversationRepository
+
+    IChatProviderFactory --> ChatProviderFactory
+    ChatProviderFactory --> AzureOpenAiChatProvider
+    ChatProviderFactory --> OpenAiChatProvider
+
+    ITokenManager --> EstimatingTokenManager
+```
+
+### End-to-end: sending a message
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant UI as Chat UI (Blazor)
+    participant ChatUiSvc as ChatUiService
+    participant ChatApi as IChatApi (Refit)
+    participant Endpoint as SendMessageEndpoint
+    participant ChatSvc as ChatService
+    participant ConvSvc as ConversationService
+    participant Repo as IConversationRepository
+    participant Provider as IChatProviderFactory / IChatProvider
+    participant TokenMgr as ITokenManager
+
+    User->>UI: type message, click Send
+    UI->>ChatUiSvc: SendMessageAsync(model, message)
+    ChatUiSvc->>ChatApi: SendMessageAsync(SendMessageRequest)
+    ChatApi->>Endpoint: POST /chat/send
+    Endpoint->>ChatSvc: SendAsync(ChatRequest)
+
+    ChatSvc->>ConvSvc: GetRequiredAsync(conversationId)
+    ConvSvc->>Repo: GetByIdAsync(conversationId)
+    Repo-->>ConvSvc: Conversation (or null -> throw)
+    ConvSvc-->>ChatSvc: Conversation
+
+    ChatSvc->>ChatSvc: conversation.AddMessage(userMessage)
+    ChatSvc->>Provider: SendAsync(model, conversation.Messages)
+    Provider-->>ChatSvc: assistant response text
+
+    ChatSvc->>TokenMgr: CalculateAsync(conversation.Messages, response, model)
+    TokenMgr-->>ChatSvc: TokenUsage (input/output tokens, limit, remaining, % used)
+
+    ChatSvc->>ChatSvc: conversation.AddMessage(assistantMessage + TokenUsage)
+    ChatSvc->>ConvSvc: SaveAsync(conversation)
+    ConvSvc->>Repo: UpdateAsync(conversation)
+
+    ChatSvc-->>Endpoint: ChatResponse(response, TokenUsage)
+    Endpoint-->>ChatApi: 200 OK SendMessageResponse
+
+    ChatUiSvc->>ChatApi: GetConversationAsync(conversationId) (reload)
+    ChatApi-->>ChatUiSvc: GetConversationResponse (messages + TokenUsage)
+    ChatUiSvc->>ChatState: SetConversation(...)
+    ChatState-->>UI: re-render
+    UI->>User: assistant reply + TokenUsageSummary progress bar
+```
+
 ## Provider architecture
 
 The API talks to chat models through an `IChatProvider` abstraction (`ChatBot.ApiService/Features/Chat/Contracts/IChatProvider.cs`), not directly against any SDK. Each provider implements:

@@ -15,7 +15,8 @@ public static class ConversationMappings
                         m.Id,
                         m.Role.ToString(),
                         m.Content,
-                        m.CreatedAt))
+                        m.CreatedAt,
+                        m.TokenUsage))
                 .ToList());
     }
 }

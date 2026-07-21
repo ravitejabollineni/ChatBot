@@ -47,6 +47,32 @@ public sealed class ConversationService(
             cancellationToken);
     }
 
+    public async Task<Conversation> GetRequiredAsync(
+        Guid conversationId,
+        CancellationToken cancellationToken = default)
+    {
+        var conversation = await GetAsync(
+            conversationId,
+            cancellationToken);
+
+        if (conversation is null)
+        {
+            throw new InvalidOperationException(
+                $"Conversation '{conversationId}' was not found.");
+        }
+
+        return conversation;
+    }
+
+    public Task SaveAsync(
+        Conversation conversation,
+        CancellationToken cancellationToken = default)
+    {
+        return repository.UpdateAsync(
+            conversation,
+            cancellationToken);
+    }
+
     public async Task<IReadOnlyCollection<Conversation>> ListAsync(
         CancellationToken cancellationToken = default)
     {
