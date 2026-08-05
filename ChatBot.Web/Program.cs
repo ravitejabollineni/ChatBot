@@ -51,6 +51,19 @@ builder.Services
     });
 #pragma warning restore EXTEXP0001
 
+// Streaming has no natural time ceiling — a local LLM completion can run for minutes.
+// Cancel (aborting the HTTP connection from ChatUiService.CancelGeneration) is the only
+// stop mechanism, so no replacement timeout is applied here, unlike the IChatApi client above.
+#pragma warning disable EXTEXP0001
+builder.Services
+    .AddHttpClient<ChatStreamClient>(c =>
+    {
+        c.BaseAddress = new Uri("http://api");
+        c.Timeout = Timeout.InfiniteTimeSpan;
+    })
+    .RemoveAllResilienceHandlers();
+#pragma warning restore EXTEXP0001
+
 builder.Services.AddScoped<ChatState>();
 
 builder.Services.AddScoped<ChatUiService>();

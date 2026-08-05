@@ -6,7 +6,11 @@ public sealed class ChatState
 {
     public Guid? SelectedConversationId { get; private set; }
 
-    public string SelectedModel { get; private set; } = "gpt-4.1-mini";
+    // Overwritten by SetAvailableModels once the API's configured model list loads; kept
+    // as a fallback so the composer still has something valid to send if that fetch fails.
+    public string SelectedModel { get; private set; } = "phi3:mini";
+
+    public IReadOnlyList<string> AvailableModels { get; private set; } = [];
 
     public IReadOnlyList<ConversationSummaryResponse> Conversations
     {
@@ -21,6 +25,10 @@ public sealed class ChatState
     }
 
     public string? ErrorMessage { get; private set; }
+
+    public bool IsGenerating { get; private set; }
+
+    public string StreamingText { get; private set; } = string.Empty;
 
     public event Action? StateChanged;
 
@@ -53,9 +61,112 @@ public sealed class ChatState
         NotifyStateChanged();
     }
 
+    /// <summary>
+    /// Populates the model picker from the API's configured list and selects
+    /// <paramref name="defaultModel"/>. Called once, from <c>ChatUiService.InitializeAsync</c>.
+    /// </summary>
+    public void SetAvailableModels(IReadOnlyList<string> models, string defaultModel)
+    {
+        AvailableModels = models;
+
+        if (!string.IsNullOrWhiteSpace(defaultModel))
+        {
+            SelectedModel = defaultModel;
+        }
+
+        NotifyStateChanged();
+    }
+
     public void SetError(string? message)
     {
         ErrorMessage = message;
+
+        NotifyStateChanged();
+    }
+
+    /// <summary>
+    /// Adds the user's message to the current conversation straight away, before the API has
+    /// been called, so it is on screen while the reply is being generated.
+    /// </summary>
+    /// <remarks>
+    /// The view renders <see cref="CurrentConversation"/>, which is only refetched once
+    /// <c>POST /api/chat/messages</c> returns. A local completion can take tens of seconds,
+    /// and for all of it the user's own message was nowhere on screen — just a lone
+    /// "Assistant is thinking" bubble, which reads as the message having been lost. The
+    /// entry is replaced by the server's own copy when the conversation reloads, so
+    /// <see cref="Guid.Empty"/> as a placeholder id is never persisted or sent anywhere.
+    /// </remarks>
+    public void AppendPendingUserMessage(string content)
+    {
+        if (CurrentConversation is null)
+        {
+            return;
+        }
+
+        var pending = new MessageResponse(
+            MessageId: Guid.Empty,
+            Role: "user",
+            Content: content,
+            CreatedAt: DateTimeOffset.UtcNow,
+            TokenUsage: null);
+
+        CurrentConversation = CurrentConversation with
+        {
+            Messages = [.. CurrentConversation.Messages, pending],
+        };
+
+        NotifyStateChanged();
+    }
+
+    /// <summary>
+    /// Marks a generation as starting and clears any leftover streaming text from a previous
+    /// turn. Called synchronously, before the first await in the caller, so the composer
+    /// disables the instant Send is clicked.
+    /// </summary>
+    public void BeginGeneration()
+    {
+        IsGenerating = true;
+        StreamingText = string.Empty;
+
+        NotifyStateChanged();
+    }
+
+    /// <summary>
+    /// Appends a batch of streamed text to the in-progress assistant reply.
+    /// </summary>
+    public void AppendStreamingText(string delta)
+    {
+        StreamingText += delta;
+
+        NotifyStateChanged();
+    }
+
+    /// <summary>
+    /// Ends a generation and swaps in the freshly refetched conversation in a single notification.
+    /// </summary>
+    /// <remarks>
+    /// Atomicity here is load-bearing: setting <see cref="CurrentConversation"/> and clearing
+    /// <see cref="IsGenerating"/>/<see cref="StreamingText"/> as two separate notifications would
+    /// render an intermediate frame showing either both the persisted message and the leftover
+    /// streaming bubble (duplicate flash) or neither (blank flash).
+    /// </remarks>
+    public void CompleteGeneration(GetConversationResponse conversation)
+    {
+        CurrentConversation = conversation;
+        StreamingText = string.Empty;
+        IsGenerating = false;
+
+        NotifyStateChanged();
+    }
+
+    /// <summary>
+    /// Clears streaming state without touching <see cref="CurrentConversation"/>, for when the
+    /// post-stream refetch itself fails and there is nothing new to show.
+    /// </summary>
+    public void EndGeneration()
+    {
+        StreamingText = string.Empty;
+        IsGenerating = false;
 
         NotifyStateChanged();
     }

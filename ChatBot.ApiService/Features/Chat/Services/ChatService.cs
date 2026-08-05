@@ -3,6 +3,8 @@ using ChatBot.Api.Domain.Enums;
 using ChatBot.Api.Features.Chat.Contracts;
 using ChatBot.Api.Features.Chat.Models;
 using ChatBot.Api.Features.Conversations.Contracts;
+using System.Runtime.CompilerServices;
+using System.Text;
 
 namespace ChatBot.Api.Features.Chat.Services;
 
@@ -63,5 +65,88 @@ public sealed class ChatService(
             assistantMessage.Content,
             assistantMessage.CreatedAt,
             tokenUsage);
+    }
+
+    public async IAsyncEnumerable<ChatStreamChunk> StreamAsync(ChatRequest request, [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var conversation = await conversationService.GetRequiredAsync(
+            request.ConversationId,
+            cancellationToken);
+
+        var userMessage = new ConversationMessage(
+            ChatRole.User,
+            request.UserMessage,
+            timeProvider.GetUtcNow());
+
+        var history = new List<ConversationMessage>(conversation.Messages){ userMessage };
+
+        var provider = providerFactory.GetProvider(request.Model);
+
+        var responseBuilder = new StringBuilder(1024);
+
+        try
+        {
+            await foreach (var chunk in provider.StreamAsync(
+                request.Model,
+                history,
+                cancellationToken))
+            {
+                if (!string.IsNullOrEmpty(chunk.Text))
+                {
+                    responseBuilder.Append(chunk.Text);
+                }
+
+                yield return chunk;
+            }
+        }
+        finally
+        {
+            await PersistConversationTurnAsync(
+                conversation,
+                userMessage,
+                request.Model,
+                responseBuilder.ToString());
+        }
+    }
+    private async Task PersistConversationTurnAsync(
+    Conversation conversation,
+    ConversationMessage userMessage,
+    string model,
+    string assistantResponse)
+    {
+        // Persist even if the HTTP request has already been cancelled.
+        var persistenceCancellation = CancellationToken.None;
+
+        // The user's message is added unconditionally, even when the client cancelled before
+        // a single token arrived: the UI shows the user's message optimistically the moment it
+        // is sent, and an immediate cancel must not make it vanish on the post-stream refetch.
+        conversation.AddMessage(
+            userMessage,
+            userMessage.CreatedAt);
+
+        if (!string.IsNullOrWhiteSpace(assistantResponse))
+        {
+            var tokenUsage = await tokenManager.CalculateAsync(
+                conversation.Messages,
+                assistantResponse,
+                model,
+                persistenceCancellation);
+
+            var assistantMessage = new ConversationMessage(
+                ChatRole.Assistant,
+                assistantResponse,
+                timeProvider.GetUtcNow(),
+                tokenUsage);
+
+            conversation.AddMessage(
+                assistantMessage,
+                assistantMessage.CreatedAt);
+        }
+
+        await conversationService.SaveAsync(
+            conversation,
+            persistenceCancellation);
     }
 }

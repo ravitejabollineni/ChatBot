@@ -4,12 +4,14 @@
 @using ChatBot.Web.Features.Chat.State
 @using Markdig
 @using Microsoft.AspNetCore.Components.Web
+@using Microsoft.JSInterop
 
 @inject ChatState ChatState
 @inject ChatUiService ChatUiService
+@inject IJSRuntime JS
 
 <div class="conversation-view">
-    @if (ChatState.CurrentConversation is null && !isBusy)
+    @if (ChatState.CurrentConversation is null && !ChatState.IsGenerating)
     {
         <div class="welcome-state">
             <div class="welcome-state__content">
@@ -20,7 +22,7 @@
     }
     else
     {
-        <div class="message-list">
+        <div class="message-list" @ref="messageListRef">
             @if (ChatState.CurrentConversation is not null)
             {
                 @foreach (var message in ChatState.CurrentConversation.Messages)
@@ -53,17 +55,24 @@
                 }
             }
 
-            @if (isBusy)
+            @if (ChatState.IsGenerating)
             {
-                <div class="message-bubble message-bubble--assistant message-bubble--thinking">
+                <div class="message-bubble message-bubble--assistant @(ChatState.StreamingText.Length == 0 ? "message-bubble--thinking" : "")">
                     <div class="message-bubble__role">Assistant</div>
                     <div class="message-bubble__content">
-                        <div class="thinking-indicator" aria-label="Assistant is processing your message" role="status">
-                            <span class="thinking-indicator__dot"></span>
-                            <span class="thinking-indicator__dot"></span>
-                            <span class="thinking-indicator__dot"></span>
-                            <span class="thinking-indicator__label">Assistant is thinking</span>
-                        </div>
+                        @if (ChatState.StreamingText.Length == 0)
+                        {
+                            <div class="thinking-indicator" aria-label="Assistant is processing your message" role="status">
+                                <span class="thinking-indicator__dot"></span>
+                                <span class="thinking-indicator__dot"></span>
+                                <span class="thinking-indicator__dot"></span>
+                                <span class="thinking-indicator__label">Assistant is thinking</span>
+                            </div>
+                        }
+                        else
+                        {
+                            @ChatState.StreamingText<span class="typewriter-cursor"></span>
+                        }
                     </div>
                 </div>
             }
@@ -72,18 +81,26 @@
 
     <div class="message-input">
         <textarea class="form-control"
+                  @ref="textareaRef"
                   rows="3"
                   @bind-value="draftMessage"
                   @bind-value:event="oninput"
-                  @onkeydown="OnTextAreaKeyDownAsync"
                   placeholder="Type your message..."
-                  disabled="@isBusy"></textarea>
+                  disabled="@ChatState.IsGenerating"></textarea>
 
         <button class="btn btn-primary message-input__send"
+                @ref="sendButtonRef"
                 @onclick="SendAsync"
-                disabled="@isBusy">
-            @(isBusy ? "Thinking..." : "Send")
+                disabled="@ChatState.IsGenerating">
+            @(ChatState.IsGenerating ? "Thinking..." : "Send")
         </button>
+
+        @if (ChatState.IsGenerating)
+        {
+            <button type="button" class="btn btn-secondary message-input__cancel" @onclick="CancelAsync">
+                Cancel
+            </button>
+        }
     </div>
 </div>
 
@@ -94,7 +111,18 @@
         .Build();
 
     private string draftMessage = string.Empty;
-    private bool isBusy;
+
+    // Send button's DOM node must stay in the tree unconditionally (only disabled/re-labelled,
+    // never removed) — chat.js's initializeComposer captures it once, in a closure, on
+    // firstRender. If a conditional @if swapped it out for a distinct Cancel button and back,
+    // that closure would go on holding a detached node and Enter-to-send would silently stop
+    // working the moment a generation finishes.
+    private ElementReference messageListRef;
+    private ElementReference textareaRef;
+    private ElementReference sendButtonRef;
+
+    private DotNetObjectReference<ConversationView>? dotNetRef;
+    private IJSObjectReference? reconnectObserver;
 
     private static MarkupString RenderMarkdown(string content) =>
         new(Markdown.ToHtml(content, MarkdownPipeline));
@@ -109,9 +137,81 @@
         InvokeAsync(StateHasChanged);
     }
 
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            dotNetRef = DotNetObjectReference.Create(this);
+
+            try
+            {
+                await JS.InvokeVoidAsync("chatBot.initializeComposer", textareaRef, sendButtonRef);
+                reconnectObserver = await JS.InvokeAsync<IJSObjectReference?>("chatBot.observeReconnect", dotNetRef);
+            }
+            catch (Exception ex) when (ex is JSDisconnectedException or JSException)
+            {
+                // A transient disconnect (or a missing #components-reconnect-modal — see the
+                // remarks on OnCircuitReconnected) right after first render; not fatal, just
+                // means Enter-to-send/reconnect-refresh won't be wired up for this circuit.
+                Console.WriteLine($"Unable to initialize chat interop: {ex.Message}");
+            }
+        }
+
+        // Bounded by the same ~75ms streaming flush cadence that drives re-renders while
+        // generating, so this never fires more often than that.
+        var hasMessageList = ChatState.CurrentConversation is not null || ChatState.IsGenerating;
+
+        if (hasMessageList)
+        {
+            try
+            {
+                await JS.InvokeVoidAsync("chatBot.scrollToBottom", messageListRef);
+            }
+            catch (JSDisconnectedException)
+            {
+                // Unhandled here, this would tear down the whole circuit — and a disconnect
+                // mid-stream is exactly when this fires. The next successful render scrolls again.
+            }
+        }
+    }
+
     public void Dispose()
     {
         ChatState.StateChanged -= OnStateChanged;
+
+        if (reconnectObserver is not null)
+        {
+            _ = DisconnectObserverSafelyAsync(reconnectObserver);
+        }
+
+        dotNetRef?.Dispose();
+    }
+
+    /// <summary>
+    /// Fire-and-forget teardown of the MutationObserver JS keeps alive for us. A circuit that's
+    /// already gone by the time Dispose runs would otherwise throw on the interop call itself.
+    /// </summary>
+    private async Task DisconnectObserverSafelyAsync(IJSObjectReference observer)
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("chatBot.disconnectObserver", observer);
+        }
+        catch (JSDisconnectedException)
+        {
+            // Circuit already gone; there's nothing left to clean up client-side, and disposing
+            // the reference below would only throw the same way.
+            return;
+        }
+
+        try
+        {
+            await observer.DisposeAsync();
+        }
+        catch (JSDisconnectedException)
+        {
+            // Dropped between the call above and this one; already effectively cleaned up.
+        }
     }
 
     private async Task SendAsync()
@@ -119,32 +219,42 @@
         if (string.IsNullOrWhiteSpace(draftMessage))
             return;
 
-        isBusy = true;
+        var message = draftMessage;
+        draftMessage = string.Empty;
 
-        try
+        if (ChatState.SelectedConversationId is null)
         {
-            if (ChatState.SelectedConversationId is null)
-            {
-                await ChatUiService.CreateConversationAsync();
-            }
-
-            await ChatUiService.SendMessageAsync(
-                ChatState.SelectedModel,
-                draftMessage);
-
-            draftMessage = string.Empty;
+            await ChatUiService.CreateConversationAsync();
         }
-        finally
-        {
-            isBusy = false;
-        }
+
+        await ChatUiService.SendMessageStreamingAsync(
+            ChatState.SelectedModel,
+            message);
     }
 
-    private async Task OnTextAreaKeyDownAsync(KeyboardEventArgs args)
+    private Task CancelAsync()
     {
-        if (args.Key is "Enter" && !args.ShiftKey)
+        ChatUiService.CancelGeneration();
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Belt-and-braces refetch for when a browser↔server circuit blip caused render batches to
+    /// be dropped. The circuit itself survives a short disconnect and keeps streaming — this is
+    /// only needed when the resumed view is stale.
+    /// </summary>
+    /// <remarks>
+    /// If the circuit exceeds Blazor's retention window it gets a fresh scope with
+    /// <see cref="ChatState.SelectedConversationId"/> already null, and there is no
+    /// <c>{conversationId}</c> route parameter to recover it from — known limitation, not fixed
+    /// here.
+    /// </remarks>
+    [JSInvokable]
+    public async Task OnCircuitReconnected()
+    {
+        if (ChatState.SelectedConversationId is Guid conversationId)
         {
-            await SendAsync();
+            await ChatUiService.LoadConversationAsync(conversationId);
         }
     }
 }

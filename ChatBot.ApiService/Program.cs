@@ -1,4 +1,4 @@
-using ChatBot.Api.Infrastructure.DependencyInjection;
+using ChatBot.Api.AI.DependencyInjection;
 using FastEndpoints;
 using Scalar.AspNetCore;
 

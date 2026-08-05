@@ -445,6 +445,12 @@ body {
     cursor: not-allowed;
 }
 
+.message-input__cancel {
+    min-width: 110px;
+    height: 84px;
+    border-radius: 14px;
+}
+
 .empty-state {
     padding: 20px;
     border: 1px dashed rgba(255,255,255,0.15);

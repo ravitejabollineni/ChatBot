@@ -39,3 +39,36 @@ window.chatBot.initializeComposer = (textarea, sendButton) => {
         sendButton.click();
     });
 };
+
+// #components-reconnect-modal's class names are Blazor-internal, not a public contract.
+// If a future Blazor release renames them, this silently stops firing (stale view after
+// a long blip, not a crash).
+window.chatBot.observeReconnect = (dotNetRef) => {
+    const modal = document.getElementById('components-reconnect-modal');
+
+    if (!modal || !dotNetRef) {
+        return null;
+    }
+
+    let wasShowing = modal.classList.contains('components-reconnect-show');
+
+    const observer = new MutationObserver(() => {
+        const isShowing = modal.classList.contains('components-reconnect-show');
+
+        if (wasShowing && !isShowing) {
+            dotNetRef.invokeMethodAsync('OnCircuitReconnected');
+        }
+
+        wasShowing = isShowing;
+    });
+
+    observer.observe(modal, { attributes: true, attributeFilter: ['class'] });
+
+    return observer;
+};
+
+window.chatBot.disconnectObserver = (observer) => {
+    if (observer) {
+        observer.disconnect();
+    }
+};

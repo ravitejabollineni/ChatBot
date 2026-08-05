@@ -2,7 +2,7 @@
 using ChatBot.Api.Domain.Enums;
 using ChatBot.Api.Features.Conversations.Get;
 using ChatBot.Api.Features.Conversations.Create;
-using ChatBot.Api.Infrastructure.Configuration;
+using ChatBot.Api.AI.Configuration;
 using ChatBot.Api.Infrastructure.Persistence;
 using ChatBot.Api.Features.Conversations.Contracts;
 using Microsoft.Extensions.Options;

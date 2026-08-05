@@ -34,6 +34,20 @@
                 <span class="status-dot"></span>
                 Ready to help
             </div>
+
+            <div class="model-selector">
+                <label for="modelSelect" class="visually-hidden">Model</label>
+                <select id="modelSelect"
+                        class="form-select"
+                        value="@ChatState.SelectedModel"
+                        disabled="@ChatState.IsGenerating"
+                        @onchange="OnModelChangedAsync">
+                    @foreach (var model in ChatState.AvailableModels)
+                    {
+                        <option value="@model">@model</option>
+                    }
+                </select>
+            </div>
         </header>
 
         @if (ChatState.ErrorMessage is not null)
@@ -61,6 +75,20 @@
     private async Task CreateConversationAsync()
     {
         await ChatUiService.CreateConversationAsync();
+    }
+
+    // The <select>'s value is set from ChatState.SelectedModel rather than @bind-value,
+    // since ChatState is external state with a private setter (SetModel is the only way
+    // to mutate it) — the same reason ConversationView drives its Cancel button through a
+    // plain @onclick instead of two-way binding.
+    private Task OnModelChangedAsync(ChangeEventArgs e)
+    {
+        if (e.Value is string model && !string.IsNullOrWhiteSpace(model))
+        {
+            ChatState.SetModel(model);
+        }
+
+        return Task.CompletedTask;
     }
 
     private void OnStateChanged()
