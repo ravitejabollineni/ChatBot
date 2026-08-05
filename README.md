@@ -1,221 +1,157 @@
 # ChatBot
 
-A small chat application built on **.NET Aspire**. A Blazor Server front end talks to a backend API, which forwards chat requests to a chat model provider and returns the conversation back to the UI.
+A small chat application built on **.NET Aspire**. A Blazor Server front end talks to a backend API, which forwards chat requests to an AI model — either a **local Ollama** model or a cloud provider (Azure OpenAI, OpenAI) — and streams or returns the response back to the UI.
 
-The API is provider-agnostic: chat requests are routed through an `IChatProvider` abstraction, so new providers (OpenAI, Anthropic Claude, a local Ollama server, etc.) can be added by implementing the interface and registering it — no changes to the chat business logic. See [Provider architecture](#provider-architecture) below.
+The API is provider-agnostic: chat requests are routed through an `IChatProvider` abstraction, so which model serves a given request is a **configuration change, not a code change**. See [AI providers & models](#ai-providers--models) below, including how to point the app at a local Ollama server.
 
 ## Projects
 
 | Project | Description |
 |---|---|
 | `ChatBot.AppHost` | .NET Aspire orchestrator — starts and wires up the API and Web app together, with the Aspire dashboard for logs/traces. |
-| `ChatBot.ApiService` | Backend API (FastEndpoints) that manages conversations and calls Azure OpenAI via `Microsoft.Extensions.AI`. |
-| `ChatBot.Web` | Blazor Server front end (InteractiveServer render mode) that calls the API via Refit. |
+| `ChatBot.ApiService` | Backend API (FastEndpoints) that manages conversations and routes chat requests to whichever `IChatProvider` (Ollama, Azure OpenAI, OpenAI) is configured to serve the requested model. |
+| `ChatBot.Web` | Blazor Server front end (`InteractiveServer` render mode) that calls the API via Refit, including a server-sent-events streaming client for token-by-token replies. |
 | `ChatBot.ServiceDefaults` | Shared Aspire service defaults: OpenTelemetry, health checks, service discovery, HTTP resilience. |
 
 ## Technologies
 
 - .NET 10 / C# (`net10.0`)
-- .NET Aspire 13.2.4 (`Aspire.AppHost.Sdk`)
+- .NET Aspire (`Aspire.AppHost.Sdk`)
 - ASP.NET Core, Blazor Server (`InteractiveServer` render mode)
 - FastEndpoints 8.2.0 (+ `FastEndpoints.AspVersioning`)
 - Refit 13.1.0 (typed HTTP clients, Web → API)
-- Azure.AI.OpenAI 2.1.0, Azure.Identity 1.21.0
-- Microsoft.Extensions.AI / Microsoft.Extensions.AI.OpenAI 10.7.0
-- Microsoft.Extensions.Http.Resilience 10.2.0 (Polly-based resilience)
-- Microsoft.Extensions.ServiceDiscovery 10.2.0
-- OpenTelemetry (ASP.NET Core, HTTP client, runtime instrumentation) 1.15.x
-- Scalar.AspNetCore 2.16.11 (OpenAPI UI for the API)
+- Microsoft.Extensions.AI 10.8.3 — the shared `IChatClient` abstraction used by the Ollama and Azure OpenAI providers
+- **OllamaSharp 5.4.30** — talks to a local Ollama server through `Microsoft.Extensions.AI`'s `IChatClient`
+- Azure.AI.OpenAI 2.1.0, Azure.Identity 1.21.0 (Azure OpenAI provider, also via `IChatClient`)
+- OpenAI 2.12.0 (OpenAI provider — talks to the SDK's `ChatClient` directly, bypassing `Microsoft.Extensions.AI`; see [Provider implementation patterns](#provider-implementation-patterns))
+- Microsoft.Extensions.Http.Resilience (Polly-based per-provider timeouts)
+- Microsoft.Extensions.ServiceDiscovery
+- OpenTelemetry (ASP.NET Core, HTTP client, runtime instrumentation)
+- Scalar.AspNetCore (OpenAPI UI for the API)
 
 ## Architecture
 
-The backend is layered by responsibility, and each layer only talks to the layer below through an interface:
+The backend is layered by responsibility:
 
-- **Endpoints** (`Features/*/​*Endpoint.cs`, FastEndpoints) — HTTP in/out only, no business logic.
-- **Application services** (`ChatService`, `ConversationService`) — orchestrate a use case.
-- **Abstractions** (`IConversationService`, `IChatProviderFactory` / `IChatProvider`, `ITokenManager`) — the only things application services depend on.
-- **Infrastructure** (`InMemoryConversationRepository`, `AzureOpenAiChatProvider`, `OpenAiChatProvider`, `EstimatingTokenManager`) — concrete, swappable implementations, registered in `ServiceCollectionExtensions.AddInfrastructure`.
+- **Endpoints** (`Features/Chat/Endpoints/*`, FastEndpoints) — `SendMessageEndpoint` (`POST /api/chat/messages`, full response), `StreamMessageEndpoint` (`POST /api/chat/messages/stream`, server-sent events), `GetModelsEndpoint` (`GET /api/chat/models`, drives the model picker), plus the `Conversations` endpoints. HTTP in/out only, no business logic.
+- **Application services** (`ChatService`, `ConversationService`) — orchestrate a use case; `ChatService` also calculates and persists token usage per turn via `ITokenManager`.
+- **Abstractions** (`IChatProviderFactory` / `IChatProvider`, `IConversationService`, `ITokenManager`) — the only things application services depend on.
+- **AI module** (`AI/`) — everything provider-specific: `AI/Configuration` (options for each provider), `AI/Providers/{Ollama,AzureOpenAI,OpenAI}` (the `IChatProvider` implementations), `AI/Routing` (`ChatProviderFactory`, `ChatProviderNames`), `AI/DependencyInjection` (`ServiceCollectionExtensions.AddInfrastructure`, where every provider, `IChatClient`, and `HttpClient` is registered).
 
-Notably, `ChatService` never talks to `IConversationRepository` directly — only `ConversationService` does. `ChatService` depends on `IConversationService`, which exposes two different lookup contracts for two different needs:
+`ChatService` depends only on `IChatProviderFactory` — it has no knowledge of Ollama, Azure OpenAI, or OpenAI. `ChatProviderFactory` resolves a provider per-request by looking up the requested model in `AI:AvailableModels`, falling back to `AI:DefaultProvider`.
 
-- `GetAsync` — nullable "try get", returns `null` if the conversation doesn't exist. Used by `GetConversationEndpoint` to return an HTTP 404.
-- `GetRequiredAsync` — throws if the conversation doesn't exist. Used by `ChatService`, which has no message to send if the conversation it's replying to isn't there.
+## AI providers & models
 
-Token usage is calculated the same way: `ChatService` doesn't count tokens itself. It hands `ITokenManager.CalculateAsync` the actual `ConversationMessage` collection sent to the provider plus the raw assistant response, and gets back a `TokenUsage` (input/output token counts, context limit, remaining budget, percentage used). `EstimatingTokenManager` is a character-length heuristic today; it can be swapped for a real tokenizer (e.g. Tiktoken) without touching `ChatService` or any endpoint.
-
-```mermaid
-graph TD
-    subgraph Web["ChatBot.Web (Blazor Server)"]
-        UI["Chat components<br/>(ConversationView, TokenUsageSummary)"]
-        ChatUiService
-        ChatState
-        IChatApi["IChatApi (Refit)"]
-        IConversationApi["IConversationApi (Refit)"]
-    end
-
-    subgraph Api["ChatBot.ApiService (FastEndpoints)"]
-        Endpoints["SendMessageEndpoint / GetConversationEndpoint /<br/>CreateConversationEndpoint / ListConversationEndpoint"]
-        ChatService
-        IConversationService
-        ConversationService
-        IConversationRepository
-        InMemoryConversationRepository
-        IChatProviderFactory
-        ChatProviderFactory
-        ITokenManager
-        EstimatingTokenManager
-    end
-
-    subgraph Providers["IChatProvider implementations"]
-        AzureOpenAiChatProvider
-        OpenAiChatProvider
-    end
-
-    UI --> ChatUiService
-    ChatUiService --> IChatApi
-    ChatUiService --> IConversationApi
-    IChatApi -- HTTP --> Endpoints
-    IConversationApi -- HTTP --> Endpoints
-
-    Endpoints --> ChatService
-    Endpoints --> IConversationService
-
-    ChatService --> IConversationService
-    ChatService --> IChatProviderFactory
-    ChatService --> ITokenManager
-
-    IConversationService --> ConversationService
-    ConversationService --> IConversationRepository
-    IConversationRepository --> InMemoryConversationRepository
-
-    IChatProviderFactory --> ChatProviderFactory
-    ChatProviderFactory --> AzureOpenAiChatProvider
-    ChatProviderFactory --> OpenAiChatProvider
-
-    ITokenManager --> EstimatingTokenManager
-```
-
-### End-to-end: sending a message
-
-```mermaid
-sequenceDiagram
-    participant User
-    participant UI as Chat UI (Blazor)
-    participant ChatUiSvc as ChatUiService
-    participant ChatApi as IChatApi (Refit)
-    participant Endpoint as SendMessageEndpoint
-    participant ChatSvc as ChatService
-    participant ConvSvc as ConversationService
-    participant Repo as IConversationRepository
-    participant Provider as IChatProviderFactory / IChatProvider
-    participant TokenMgr as ITokenManager
-
-    User->>UI: type message, click Send
-    UI->>ChatUiSvc: SendMessageAsync(model, message)
-    ChatUiSvc->>ChatApi: SendMessageAsync(SendMessageRequest)
-    ChatApi->>Endpoint: POST /chat/send
-    Endpoint->>ChatSvc: SendAsync(ChatRequest)
-
-    ChatSvc->>ConvSvc: GetRequiredAsync(conversationId)
-    ConvSvc->>Repo: GetByIdAsync(conversationId)
-    Repo-->>ConvSvc: Conversation (or null -> throw)
-    ConvSvc-->>ChatSvc: Conversation
-
-    ChatSvc->>ChatSvc: conversation.AddMessage(userMessage)
-    ChatSvc->>Provider: SendAsync(model, conversation.Messages)
-    Provider-->>ChatSvc: assistant response text
-
-    ChatSvc->>TokenMgr: CalculateAsync(conversation.Messages, response, model)
-    TokenMgr-->>ChatSvc: TokenUsage (input/output tokens, limit, remaining, % used)
-
-    ChatSvc->>ChatSvc: conversation.AddMessage(assistantMessage + TokenUsage)
-    ChatSvc->>ConvSvc: SaveAsync(conversation)
-    ConvSvc->>Repo: UpdateAsync(conversation)
-
-    ChatSvc-->>Endpoint: ChatResponse(response, TokenUsage)
-    Endpoint-->>ChatApi: 200 OK SendMessageResponse
-
-    ChatUiSvc->>ChatApi: GetConversationAsync(conversationId) (reload)
-    ChatApi-->>ChatUiSvc: GetConversationResponse (messages + TokenUsage)
-    ChatUiSvc->>ChatState: SetConversation(...)
-    ChatState-->>UI: re-render
-    UI->>User: assistant reply + TokenUsageSummary progress bar
-```
-
-## Provider architecture
-
-The API talks to chat models through an `IChatProvider` abstraction (`ChatBot.ApiService/Features/Chat/Contracts/IChatProvider.cs`), not directly against any SDK. Each provider implements:
-
-```csharp
-public interface IChatProvider
-{
-    string Name { get; }
-    bool CanHandle(string model);
-    Task<string> SendAsync(string model, IReadOnlyCollection<ConversationMessage> messages, CancellationToken cancellationToken = default);
-}
-```
-
-All registered `IChatProvider` instances are injected into `ChatProviderFactory`, which picks the first provider whose `CanHandle(model)` returns `true` for the requested model. `ChatService` only depends on `IChatProviderFactory` — it has no knowledge of Azure OpenAI, OpenAI, or any other vendor.
-
-Two providers exist today, wired up in `ServiceCollectionExtensions.AddInfrastructure`:
-
-- `AzureOpenAiChatProvider` — uses `Microsoft.Extensions.AI` (`IChatClient`) against an Azure OpenAI deployment. Its `CanHandle` always returns `true`, so it acts as the default/catch-all.
-- `OpenAiChatProvider` — uses the `OpenAI` SDK directly. Its `CanHandle` returns `true` only for models listed under `ChatProviders:OpenAI:Models`.
-
-### Adding another provider (Claude, Ollama, etc.)
-
-No business logic needs to change — `ChatService` and the API endpoints stay the same. To add a new provider:
-
-1. Add an options class under `Infrastructure/Configuration` (e.g. `OllamaOptions`) with a `SectionName` and whatever fields the provider needs (base URL, API key, model list, ...).
-2. Add a matching section under `ChatProviders` in `appsettings.json` (e.g. `ChatProviders:Ollama`).
-3. Implement `IChatProvider` under `Infrastructure/Providers/<ProviderName>`, deciding which models it handles in `CanHandle` (e.g. match against its configured model list, or a name prefix like `"claude-"`).
-4. Register it in `ServiceCollectionExtensions.AddInfrastructure`:
-   ```csharp
-   services.Configure<OllamaOptions>(configuration.GetSection(OllamaOptions.SectionName));
-   services.AddSingleton<IChatProvider, OllamaChatProvider>();
-   ```
-   Register more specific providers (e.g. ones with a restrictive `CanHandle`) before `AzureOpenAiChatProvider`, since its `CanHandle` always returns `true` and would otherwise match first.
-
-Because each provider is a self-contained `IChatProvider`, a local model server like Ollama can be added the same way — its provider just points `SendAsync` at a local HTTP endpoint (e.g. `http://localhost:11434`) instead of a cloud API.
-
-## Prerequisites
-
-- [.NET 10 SDK](https://dotnet.microsoft.com/download)
-- An **Azure OpenAI** resource with a chat model deployed (e.g. `gpt-4o`), plus its endpoint URL, API key, and deployment name
-
-## Configuration
-
-Each provider reads its own section under `ChatProviders` in `ChatBot.ApiService/appsettings.json`. Azure OpenAI is registered as the default provider (it handles any model not claimed by another provider); OpenAI is included as a second example provider, enabled for whatever models are listed under it:
+All AI configuration lives under the `AI` section of `ChatBot.ApiService/appsettings.json`:
 
 ```json
-"ChatProviders": {
-  "AzureOpenAI": {
-    "Endpoint": "default",
-    "ApiKey": "default",
-    "DeploymentName": "gpt-4o",
-    "Models": [ "gpt-4o" ]
-  },
-  "OpenAI": {
-    "ApiKey": "default",
-    "BaseUrl": "default",
-    "Models": [ ]
+"AI": {
+  "DefaultProvider": "Ollama",
+  "AvailableModels": [
+    { "Model": "phi3:mini",     "Provider": "Ollama" },
+    { "Model": "gpt-5.4-mini",  "Provider": "AzureOpenAI" }
+  ],
+  "Providers": {
+    "Ollama": {
+      "BaseUrl": "http://localhost:11434",
+      "ChatModel": "phi3:mini",
+      "EmbeddingModel": "nomic-embed-text",
+      "NumCtx": 8192
+    },
+    "AzureOpenAI": {
+      "Endpoint": "default",
+      "ApiKey": "default",
+      "DeploymentName": "gpt-5.4-mini"
+    },
+    "OpenAI": {
+      "ApiKey": "default",
+      "Model": "default"
+    }
   }
 }
 ```
 
-You only need to fill in the section(s) for the provider(s) you actually use — leave `OpenAI` with empty `Models` if you're not using it.
+- **`AI:DefaultProvider`** — one of `Ollama`, `AzureOpenAI`, `OpenAI`. Serves any model not explicitly listed in `AvailableModels`, and any request for a model with no `Provider` set.
+- **`AI:AvailableModels`** — the model picker shown in the chat UI (`GET /api/chat/models`). Each entry is a model name plus an optional `Provider`; when `Provider` is omitted, `DefaultProvider` serves it.
+- **`AI:Providers:*`** — one section per provider, each bound to its own options class. Only the provider(s) actually reachable through `DefaultProvider`/`AvailableModels` are validated (and constructed) at startup — an unconfigured provider that nothing routes to is simply never built, so e.g. leaving `AzureOpenAI` blank while using only Ollama is fine.
 
-Don't put real credentials in `appsettings.json` — set them locally with `dotnet user-secrets` instead:
+Adding another model just means adding an entry to `AvailableModels` (and filling in that provider's section if it isn't configured yet) — no code changes required. Adding a brand-new provider means implementing `IChatProvider` under `AI/Providers/<Name>` and registering it in `ServiceCollectionExtensions.AddInfrastructure`, following the existing Ollama/Azure OpenAI/OpenAI pattern.
+
+### Provider implementation patterns
+
+Not all three providers talk to their backend the same way — this is deliberate, to show both approaches side by side:
+
+| Provider | Underlying client | How it's called |
+|---|---|---|
+| `OllamaChatProvider` | `Microsoft.Extensions.AI`'s `IChatClient` (implemented by OllamaSharp's `OllamaApiClient`) | Vendor-agnostic abstraction |
+| `AzureOpenAiChatProvider` | `Microsoft.Extensions.AI`'s `IChatClient` (via `AzureOpenAIClient.GetChatClient(...).AsIChatClient()`) | Vendor-agnostic abstraction |
+| `OpenAiChatProvider` | The `OpenAI` SDK's own `OpenAI.Chat.ChatClient`, constructed directly | Vendor-specific SDK, no `Microsoft.Extensions.AI` in between |
+
+Ollama and Azure OpenAI both go through `IChatClient`, so they're built once, injected via keyed DI (`AI/DependencyInjection/ServiceCollectionExtensions.cs`), and their providers call the same `GetResponseAsync`/`GetStreamingResponseAsync` methods regardless of vendor.
+
+The OpenAI provider is intentionally different: it new's up `OpenAI.Chat.ChatClient` itself and calls `CompleteChatAsync`/`CompleteChatStreamingAsync` straight from the OpenAI SDK, with no `IChatClient` in between. It exists to show what wiring a provider directly against its own SDK looks like — useful as a template if you need to add a vendor whose SDK doesn't implement `IChatClient`, or want more direct control over vendor-specific request options than the abstraction exposes.
+
+### Running a local model with Ollama
+
+The app defaults to a local **Ollama** server (`AI:DefaultProvider: "Ollama"`), so it can run entirely offline with no cloud credentials.
+
+1. **Install Ollama** — [ollama.com/download](https://ollama.com/download).
+2. **Pull a chat model** that matches (or replaces) `AI:Providers:Ollama:ChatModel`:
+   ```bash
+   ollama pull phi3:mini
+   ```
+   Ollama listens on `http://localhost:11434` by default — this must match `AI:Providers:Ollama:BaseUrl`.
+3. **Point the app at it** in `ChatBot.ApiService/appsettings.json` (or override locally, see below):
+   ```json
+   "AI": {
+     "DefaultProvider": "Ollama",
+     "AvailableModels": [ { "Model": "phi3:mini", "Provider": "Ollama" } ],
+     "Providers": {
+       "Ollama": {
+         "BaseUrl": "http://localhost:11434",
+         "ChatModel": "phi3:mini",
+         "NumCtx": 8192
+       }
+     }
+   }
+   ```
+   `BaseUrl` and `ChatModel` are required whenever Ollama is the (or a) selected provider — the app fails fast at startup if they're missing.
+4. **Run the app** as usual (see [Running the app](#running-the-app)) — no `dotnet user-secrets` needed for Ollama, since nothing here is a real credential.
+
+To override without editing `appsettings.json` (e.g. per machine), use environment variables:
+
+```bash
+ChatProviders__Ollama__ChatModel=qwen3:4b   # (or set AI__Providers__Ollama__ChatModel)
+```
+
+or the equivalent `dotnet user-secrets set "AI:Providers:Ollama:ChatModel" "qwen3:4b"` from `ChatBot.ApiService`.
+
+Two extra Ollama-only settings worth knowing about:
+
+- **`NumCtx`** (default `8192`) — the context window size, sent to Ollama as `num_ctx`. Pinned rather than left to Ollama's default because Ollama otherwise sizes the KV cache to the model's *full native* context window — for a long-context model this can be tens of GB of RAM and cause the model load to fail outright (an opaque HTTP 500) on a typical dev machine. Raise it if you need longer conversations and have the memory to spare (roughly 70 MiB per 1K tokens for a model like `qwen3:4b`); set it to `0` to defer to Ollama's default.
+- **`EnableThinking`** (default `false`) — whether reasoning-capable models (e.g. `qwen3`) may spend output tokens "thinking" before answering. Off by default: the reasoning pass is slow and never reaches the client anyway (Ollama returns it separately from the answer text).
+
+Local inference is often much slower than a cloud API (cold model loads, CPU-only hosts), so the Ollama `HttpClient` is configured with an infinite timeout / 5-minute resilience timeout rather than the shorter one used for Azure OpenAI.
+
+### Cloud providers (Azure OpenAI / OpenAI)
+
+Fill in the matching `AI:Providers:AzureOpenAI` / `AI:Providers:OpenAI` section and reference the model in `AvailableModels` (or set it as `DefaultProvider`). Don't put real credentials in `appsettings.json` — use `dotnet user-secrets` instead:
 
 ```bash
 cd ChatBot.ApiService
 dotnet user-secrets init
-dotnet user-secrets set "ChatProviders:AzureOpenAI:Endpoint" "https://<your-resource>.openai.azure.com/"
-dotnet user-secrets set "ChatProviders:AzureOpenAI:ApiKey" "<your-api-key>"
-dotnet user-secrets set "ChatProviders:AzureOpenAI:DeploymentName" "<your-deployment-name>"
+dotnet user-secrets set "AI:Providers:AzureOpenAI:Endpoint" "https://<your-resource>.openai.azure.com/"
+dotnet user-secrets set "AI:Providers:AzureOpenAI:ApiKey" "<your-api-key>"
+dotnet user-secrets set "AI:Providers:AzureOpenAI:DeploymentName" "<your-deployment-name>"
 ```
 
-(Alternatively, set the equivalent `ChatProviders__AzureOpenAI__*` environment variables.)
+(Alternatively, set the equivalent `AI__Providers__AzureOpenAI__*` environment variables.)
+
+## Prerequisites
+
+- [.NET 10 SDK](https://dotnet.microsoft.com/download)
+- For the default configuration: [Ollama](https://ollama.com/download) running locally with the configured chat model pulled (see above)
+- Optional, if you switch a model to a cloud provider: an **Azure OpenAI** resource (endpoint, API key, deployment name) and/or an **OpenAI** API key
 
 ## Running the app
 
