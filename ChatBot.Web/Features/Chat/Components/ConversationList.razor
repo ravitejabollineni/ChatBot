@@ -1,5 +1,6 @@
 @implements IDisposable
 
+@using ChatBot.Web.Features.Chat.Contracts.Conversation
 @using ChatBot.Web.Features.Chat.State
 @using ChatBot.Web.Features.Chat.Services
 
@@ -7,7 +8,11 @@
 @inject ChatUiService ChatUiService
 
 <div class="conversation-list">
-    @if (ChatState.Conversations.Count == 0)
+    @if (ChatState.IsLoadingConversations)
+    {
+        <LoadingSkeleton />
+    }
+    else if (ChatState.Conversations.Count == 0)
     {
         <div class="empty-state" style="display: block;">
             <div>No conversations yet.</div>
@@ -16,24 +21,69 @@
     }
     else
     {
-        @foreach (var conversation in ChatState.Conversations)
+        @foreach (var group in GetGroupedConversations())
         {
-            var isActive = ChatState.SelectedConversationId == conversation.ConversationId;
-
-            <button class="conversation-item @(isActive ? "conversation-item--active" : string.Empty)"
-                    @onclick="() => SelectConversationAsync(conversation.ConversationId)">
-                <span class="conversation-item__title">Conversation @conversation.ConversationId.ToString("N").Substring(0, 8)</span>
-                <span class="conversation-item__meta">@conversation.LastUpdatedAt.ToLocalTime().ToString("MMM d")</span>
-            </button>
+            <div class="conversation-group">
+                <div class="conversation-group__label">@group.Label</div>
+                @foreach (var conversation in group.Conversations)
+                {
+                    <ConversationItem Conversation="conversation"
+                                       IsActive="ChatState.SelectedConversationId == conversation.ConversationId"
+                                       OnSelect="SelectConversationAsync" />
+                }
+            </div>
         }
     }
 </div>
 
 @code
 {
+    private sealed record ConversationGroup(string Label, IReadOnlyList<ConversationSummaryResponse> Conversations);
+
     protected override void OnInitialized()
     {
         ChatState.StateChanged += OnStateChanged;
+    }
+
+    private IEnumerable<ConversationGroup> GetGroupedConversations()
+    {
+        var today = DateTimeOffset.Now.Date;
+        var yesterday = today.AddDays(-1);
+        var pastWeek = today.AddDays(-7);
+
+        var buckets = new (string Label, List<ConversationSummaryResponse> Items)[]
+        {
+            ("Today", []),
+            ("Yesterday", []),
+            ("Past 7 days", []),
+            ("Older", []),
+        };
+
+        foreach (var conversation in ChatState.Conversations)
+        {
+            var date = conversation.LastUpdatedAt.ToLocalTime().Date;
+
+            if (date == today)
+            {
+                buckets[0].Items.Add(conversation);
+            }
+            else if (date == yesterday)
+            {
+                buckets[1].Items.Add(conversation);
+            }
+            else if (date > pastWeek)
+            {
+                buckets[2].Items.Add(conversation);
+            }
+            else
+            {
+                buckets[3].Items.Add(conversation);
+            }
+        }
+
+        return buckets
+            .Where(bucket => bucket.Items.Count > 0)
+            .Select(bucket => new ConversationGroup(bucket.Label, bucket.Items));
     }
 
     private async Task SelectConversationAsync(Guid conversationId)

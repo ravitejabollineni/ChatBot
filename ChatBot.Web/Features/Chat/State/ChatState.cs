@@ -18,6 +18,13 @@ public sealed class ChatState
         private set;
     } = [];
 
+    /// <summary>
+    /// True while the initial conversation list fetch is in flight, so the sidebar can show a
+    /// loading skeleton instead of a "no conversations yet" empty state that would otherwise be
+    /// indistinguishable from a genuinely empty list.
+    /// </summary>
+    public bool IsLoadingConversations { get; private set; } = true;
+
     public GetConversationResponse? CurrentConversation
     {
         get;
@@ -50,6 +57,7 @@ public sealed class ChatState
         IReadOnlyList<ConversationSummaryResponse> conversations)
     {
         Conversations = conversations;
+        IsLoadingConversations = false;
 
         NotifyStateChanged();
     }

@@ -1,0 +1,18 @@
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">Settings</MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudText Color="Color.Secondary">Settings are coming soon.</MudText>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Close">Close</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    private void Close() => MudDialog.Close();
+}

@@ -5,51 +5,78 @@
 
 @using ChatBot.Web.Features.Chat.State
 @using ChatBot.Web.Features.Chat.Services
+@using ChatBot.Web.Features.Chat.Components
 
 @inject ChatState ChatState
 @inject ChatUiService ChatUiService
+@inject IDialogService DialogService
 
 <PageTitle>ChatBot</PageTitle>
 
-<div class="app-shell">
-    <aside class="sidebar-panel">
+<MudLayout>
+    <MudDrawer Variant="DrawerVariant.Persistent" Open="true" Elevation="0" Width="320px" Class="sidebar-panel">
         <div class="sidebar-panel__header">
             <div>
                 <p class="eyebrow">AI Workspace</p>
                 <h1>ChatBot</h1>
             </div>
 
-            <button class="btn btn-primary sidebar-panel__new-chat"
-                    @onclick="CreateConversationAsync">
-                <span>+</span> New Chat
-            </button>
+            <MudButton Variant="Variant.Filled"
+                       Color="Color.Primary"
+                       StartIcon="bi bi-plus-lg"
+                       FullWidth="true"
+                       OnClick="CreateConversationAsync">
+                New Chat
+            </MudButton>
+
+            <MudTextField T="string"
+                          Placeholder="Search conversations"
+                          Variant="Variant.Outlined"
+                          Margin="Margin.Dense"
+                          Adornment="Adornment.Start"
+                          AdornmentIcon="bi bi-search"
+                          Immediate="true"
+                          Class="sidebar-panel__search" />
         </div>
 
         <ConversationList />
-    </aside>
 
-    <section class="chat-panel">
-        <header class="chat-panel__header">
-            <div class="chat-panel__status">
-                <span class="status-dot"></span>
-                Ready to help
-            </div>
+        <div class="sidebar-panel__footer">
+            <MudTooltip Text="Settings">
+                <MudIconButton Icon="bi bi-gear" OnClick="OpenSettingsAsync" />
+            </MudTooltip>
+        </div>
+    </MudDrawer>
 
-            <div class="model-selector">
-                <label for="modelSelect" class="visually-hidden">Model</label>
-                <select id="modelSelect"
-                        class="form-select"
-                        value="@ChatState.SelectedModel"
-                        disabled="@ChatState.IsGenerating"
-                        @onchange="OnModelChangedAsync">
-                    @foreach (var model in ChatState.AvailableModels)
-                    {
-                        <option value="@model">@model</option>
-                    }
-                </select>
-            </div>
-        </header>
+    <MudAppBar Elevation="0">
+        <div class="chat-panel__status">
+            <span class="status-dot @(ChatState.IsGenerating ? "status-dot--active" : string.Empty)"></span>
+            @(ChatState.IsGenerating ? "Streaming…" : "Ready to help")
+        </div>
 
+        <MudSpacer />
+
+        @if (ContextChipLabel is not null)
+        {
+            <MudChip T="string" Color="Color.Default" Size="Size.Small" Class="context-chip">
+                @ContextChipLabel
+            </MudChip>
+        }
+
+        <MudSelect T="string"
+                   Value="ChatState.SelectedModel"
+                   ValueChanged="OnModelChangedAsync"
+                   Disabled="ChatState.IsGenerating"
+                   Dense="true"
+                   Class="model-selector">
+            @foreach (var model in ChatState.AvailableModels)
+            {
+                <MudSelectItem T="string" Value="model">@model</MudSelectItem>
+            }
+        </MudSelect>
+    </MudAppBar>
+
+    <MudMainContent Class="chat-panel">
         @if (ChatState.ErrorMessage is not null)
         {
             <div class="alert alert-danger chat-panel__error" role="alert">
@@ -60,16 +87,28 @@
         <div class="chat-panel__body">
             <ConversationView />
         </div>
-    </section>
-</div>
+    </MudMainContent>
+</MudLayout>
 
 @code
-{    
-
+{
     protected override async Task OnInitializedAsync()
-    {       
+    {
         ChatState.StateChanged += OnStateChanged;
         await ChatUiService.InitializeAsync();
+    }
+
+    private string? ContextChipLabel
+    {
+        get
+        {
+            var usage = ChatState.CurrentConversation?.Messages
+                .LastOrDefault(m => m.TokenUsage is not null)?.TokenUsage;
+
+            return usage is null
+                ? null
+                : $"{usage.RemainingTokenBudget:N0} / {usage.ContextLimit:N0} left";
+        }
     }
 
     private async Task CreateConversationAsync()
@@ -77,13 +116,18 @@
         await ChatUiService.CreateConversationAsync();
     }
 
-    // The <select>'s value is set from ChatState.SelectedModel rather than @bind-value,
-    // since ChatState is external state with a private setter (SetModel is the only way
-    // to mutate it) — the same reason ConversationView drives its Cancel button through a
-    // plain @onclick instead of two-way binding.
-    private Task OnModelChangedAsync(ChangeEventArgs e)
+    private async Task OpenSettingsAsync()
     {
-        if (e.Value is string model && !string.IsNullOrWhiteSpace(model))
+        await DialogService.ShowAsync<SettingsDialog>("Settings");
+    }
+
+    // ChatState is external state with a private setter (SetModel is the only way to mutate
+    // it), so the select is driven via Value/ValueChanged rather than @bind-Value — the same
+    // reason ConversationView drives its Cancel button through a plain @onclick instead of
+    // two-way binding.
+    private Task OnModelChangedAsync(string model)
+    {
+        if (!string.IsNullOrWhiteSpace(model))
         {
             ChatState.SetModel(model);
         }

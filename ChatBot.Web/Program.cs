@@ -4,6 +4,7 @@ using ChatBot.Web.Features.Chat.Services;
 using ChatBot.Web.Features.Chat.Services.Api;
 using ChatBot.Web.Features.Chat.State;
 using Microsoft.Extensions.Http.Resilience;
+using MudBlazor.Services;
 using Polly;
 using Refit;
 
@@ -15,6 +16,8 @@ builder.AddServiceDefaults();
 // Add services to the container.
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
+
+builder.Services.AddMudServices();
 
 builder.Services.AddOutputCache();
 

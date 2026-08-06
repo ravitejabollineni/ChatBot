@@ -2,7 +2,6 @@
 
 @using ChatBot.Web.Features.Chat.Services
 @using ChatBot.Web.Features.Chat.State
-@using Markdig
 @using Microsoft.AspNetCore.Components.Web
 @using Microsoft.JSInterop
 
@@ -32,26 +31,7 @@
                         continue;
                     }
 
-                    var isUser = string.Equals(message.Role, "user", StringComparison.OrdinalIgnoreCase);
-
-                    <div class="message-bubble @(isUser ? "message-bubble--user" : "message-bubble--assistant")">
-                        <div class="message-bubble__role">@(isUser ? "You" : "Assistant")</div>
-                        <div class="message-bubble__content">
-                            @if (isUser)
-                            {
-                                @message.Content
-                            }
-                            else
-                            {
-                                @RenderMarkdown(message.Content)
-                            }
-                        </div>
-
-                        @if (!isUser && message.TokenUsage is not null)
-                        {
-                            <TokenUsageSummary Usage="message.TokenUsage" />
-                        }
-                    </div>
+                    <MessageBubble Message="message" />
                 }
             }
 
@@ -62,16 +42,11 @@
                     <div class="message-bubble__content">
                         @if (ChatState.StreamingText.Length == 0)
                         {
-                            <div class="thinking-indicator" aria-label="Assistant is processing your message" role="status">
-                                <span class="thinking-indicator__dot"></span>
-                                <span class="thinking-indicator__dot"></span>
-                                <span class="thinking-indicator__dot"></span>
-                                <span class="thinking-indicator__label">Assistant is thinking</span>
-                            </div>
+                            <TypingIndicator />
                         }
                         else
                         {
-                            @ChatState.StreamingText<span class="typewriter-cursor"></span>
+                            @ChatState.StreamingText<StreamingCursor />
                         }
                     </div>
                 </div>
@@ -79,53 +54,16 @@
         </div>
     }
 
-    <div class="message-input">
-        <textarea class="form-control"
-                  @ref="textareaRef"
-                  rows="3"
-                  @bind-value="draftMessage"
-                  @bind-value:event="oninput"
-                  placeholder="Type your message..."
-                  disabled="@ChatState.IsGenerating"></textarea>
-
-        <button class="btn btn-primary message-input__send"
-                @ref="sendButtonRef"
-                @onclick="SendAsync"
-                disabled="@ChatState.IsGenerating">
-            @(ChatState.IsGenerating ? "Thinking..." : "Send")
-        </button>
-
-        @if (ChatState.IsGenerating)
-        {
-            <button type="button" class="btn btn-secondary message-input__cancel" @onclick="CancelAsync">
-                Cancel
-            </button>
-        }
-    </div>
+    <ChatComposer />
 </div>
 
 @code {
-    private static readonly MarkdownPipeline MarkdownPipeline = new MarkdownPipelineBuilder()
-        .UseAdvancedExtensions()
-        .DisableHtml()
-        .Build();
-
-    private string draftMessage = string.Empty;
-
-    // Send button's DOM node must stay in the tree unconditionally (only disabled/re-labelled,
-    // never removed) — chat.js's initializeComposer captures it once, in a closure, on
-    // firstRender. If a conditional @if swapped it out for a distinct Cancel button and back,
-    // that closure would go on holding a detached node and Enter-to-send would silently stop
-    // working the moment a generation finishes.
+    // Send button's DOM node lives inside ChatComposer and must stay in the tree
+    // unconditionally — see the remarks on ChatComposer for why.
     private ElementReference messageListRef;
-    private ElementReference textareaRef;
-    private ElementReference sendButtonRef;
 
     private DotNetObjectReference<ConversationView>? dotNetRef;
     private IJSObjectReference? reconnectObserver;
-
-    private static MarkupString RenderMarkdown(string content) =>
-        new(Markdown.ToHtml(content, MarkdownPipeline));
 
     protected override void OnInitialized()
     {
@@ -145,14 +83,13 @@
 
             try
             {
-                await JS.InvokeVoidAsync("chatBot.initializeComposer", textareaRef, sendButtonRef);
                 reconnectObserver = await JS.InvokeAsync<IJSObjectReference?>("chatBot.observeReconnect", dotNetRef);
             }
             catch (Exception ex) when (ex is JSDisconnectedException or JSException)
             {
                 // A transient disconnect (or a missing #components-reconnect-modal — see the
                 // remarks on OnCircuitReconnected) right after first render; not fatal, just
-                // means Enter-to-send/reconnect-refresh won't be wired up for this circuit.
+                // means reconnect-refresh won't be wired up for this circuit.
                 Console.WriteLine($"Unable to initialize chat interop: {ex.Message}");
             }
         }
@@ -212,30 +149,6 @@
         {
             // Dropped between the call above and this one; already effectively cleaned up.
         }
-    }
-
-    private async Task SendAsync()
-    {
-        if (string.IsNullOrWhiteSpace(draftMessage))
-            return;
-
-        var message = draftMessage;
-        draftMessage = string.Empty;
-
-        if (ChatState.SelectedConversationId is null)
-        {
-            await ChatUiService.CreateConversationAsync();
-        }
-
-        await ChatUiService.SendMessageStreamingAsync(
-            ChatState.SelectedModel,
-            message);
-    }
-
-    private Task CancelAsync()
-    {
-        ChatUiService.CancelGeneration();
-        return Task.CompletedTask;
     }
 
     /// <summary>

@@ -1,0 +1,36 @@
+@using ChatBot.Web.Features.Chat.Contracts.Conversation
+@using Markdig
+
+<div class="message-bubble @(IsUser ? "message-bubble--user" : "message-bubble--assistant")">
+    <div class="message-bubble__role">@(IsUser ? "You" : "Assistant")</div>
+    <div class="message-bubble__content">
+        @if (IsUser)
+        {
+            @Message.Content
+        }
+        else
+        {
+            @RenderMarkdown(Message.Content)
+        }
+    </div>
+
+    @if (!IsUser && Message.TokenUsage is not null)
+    {
+        <TokenUsage Usage="Message.TokenUsage" />
+    }
+</div>
+
+@code {
+    private static readonly MarkdownPipeline MarkdownPipeline = new MarkdownPipelineBuilder()
+        .UseAdvancedExtensions()
+        .DisableHtml()
+        .Build();
+
+    [Parameter, EditorRequired]
+    public MessageResponse Message { get; set; } = null!;
+
+    private bool IsUser => string.Equals(Message.Role, "user", StringComparison.OrdinalIgnoreCase);
+
+    private static MarkupString RenderMarkdown(string content) =>
+        new(Markdown.ToHtml(content, MarkdownPipeline));
+}

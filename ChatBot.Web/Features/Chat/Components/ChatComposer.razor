@@ -1,0 +1,84 @@
+@using ChatBot.Web.Features.Chat.Services
+@using ChatBot.Web.Features.Chat.State
+@using Microsoft.JSInterop
+
+@inject ChatState ChatState
+@inject ChatUiService ChatUiService
+@inject IJSRuntime JS
+
+<div class="message-input">
+    <textarea class="form-control"
+              @ref="textareaRef"
+              rows="1"
+              @bind-value="draftMessage"
+              @bind-value:event="oninput"
+              placeholder="Type your message..."
+              disabled="@ChatState.IsGenerating"></textarea>
+
+    <button class="btn btn-primary message-input__send"
+            @ref="sendButtonRef"
+            @onclick="SendAsync"
+            disabled="@ChatState.IsGenerating">
+        @(ChatState.IsGenerating ? "Thinking..." : "Send")
+    </button>
+
+    @if (ChatState.IsGenerating)
+    {
+        <button type="button" class="btn btn-secondary message-input__cancel" @onclick="CancelAsync">
+            Cancel
+        </button>
+    }
+</div>
+
+@code {
+    private string draftMessage = string.Empty;
+
+    // Send button's DOM node must stay in the tree unconditionally (only disabled/re-labelled,
+    // never removed) — chat.js's initializeComposer captures it once, in a closure, on
+    // firstRender. If a conditional @if swapped it out for a distinct Cancel button and back,
+    // that closure would go on holding a detached node and Enter-to-send would silently stop
+    // working the moment a generation finishes.
+    private ElementReference textareaRef;
+    private ElementReference sendButtonRef;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                await JS.InvokeVoidAsync("chatBot.initializeComposer", textareaRef, sendButtonRef);
+            }
+            catch (Exception ex) when (ex is JSDisconnectedException or JSException)
+            {
+                // A transient disconnect right after first render; not fatal, just means
+                // Enter-to-send won't be wired up for this circuit.
+                Console.WriteLine($"Unable to initialize chat composer interop: {ex.Message}");
+            }
+        }
+    }
+
+    private async Task SendAsync()
+    {
+        if (string.IsNullOrWhiteSpace(draftMessage))
+            return;
+
+        var message = draftMessage;
+        draftMessage = string.Empty;
+
+        if (ChatState.SelectedConversationId is null)
+        {
+            await ChatUiService.CreateConversationAsync();
+        }
+
+        await ChatUiService.SendMessageStreamingAsync(
+            ChatState.SelectedModel,
+            message);
+    }
+
+    private Task CancelAsync()
+    {
+        ChatUiService.CancelGeneration();
+        return Task.CompletedTask;
+    }
+}

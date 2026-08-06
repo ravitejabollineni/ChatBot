@@ -1,5 +1,12 @@
 ﻿@inherits LayoutComponentBase
 
+@using ChatBot.Web.Theming
+
+<MudThemeProvider Theme="AppTheme.Default" IsDarkMode="true" />
+<MudPopoverProvider />
+<MudDialogProvider />
+<MudSnackbarProvider />
+
 <div class="page-shell">
     @Body
 </div>
