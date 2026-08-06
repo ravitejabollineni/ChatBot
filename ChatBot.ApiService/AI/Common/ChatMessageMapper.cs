@@ -1,8 +1,10 @@
 using ChatBot.Api.Domain.Entities;
+using Google.GenAI.Types;
 using OpenAI.Chat;
 using AiChatMessage = Microsoft.Extensions.AI.ChatMessage;
 using AiChatRole = Microsoft.Extensions.AI.ChatRole;
 using DomainChatRole = ChatBot.Api.Domain.Enums.ChatRole;
+using GeminiContent = Google.GenAI.Types.Content;
 using OpenAiChatMessage = OpenAI.Chat.ChatMessage;
 
 namespace ChatBot.Api.AI.Common;
@@ -11,7 +13,8 @@ namespace ChatBot.Api.AI.Common;
 /// Translates domain <see cref="ConversationMessage"/> history into the message shapes the
 /// SDKs behind each <c>IChatProvider</c> expect. Providers built on Microsoft.Extensions.AI
 /// (Azure OpenAI, Ollama) share <see cref="ToAiMessages"/>; the OpenAI SDK has its own
-/// per-role message hierarchy and uses <see cref="ToOpenAiMessages"/>.
+/// per-role message hierarchy and uses <see cref="ToOpenAiMessages"/>; the Google GenAI SDK
+/// has its own again and uses <see cref="ToGeminiContents"/>.
 /// </summary>
 public static class ChatMessageMapper
 {
@@ -66,6 +69,32 @@ public static class ChatMessageMapper
         }
 
         return chatMessages;
+    }
+
+    public static (string? SystemInstruction, List<GeminiContent> Contents) ToGeminiContents(
+        IReadOnlyCollection<ConversationMessage> messages)
+    {
+        ArgumentNullException.ThrowIfNull(messages);
+
+        string? systemInstruction = null;
+        List<GeminiContent> contents = new(messages.Count);
+
+        foreach (var message in messages)
+        {
+            if (message.Role == DomainChatRole.System)
+            {
+                systemInstruction = message.Content;
+                continue;
+            }
+
+            contents.Add(new GeminiContent
+            {
+                Role = message.Role == DomainChatRole.Assistant ? "model" : "user",
+                Parts = [Part.FromText(message.Content)]
+            });
+        }
+
+        return (systemInstruction, contents);
     }
 
     private static AiChatRole ToAiRole(DomainChatRole role)

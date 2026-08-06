@@ -14,4 +14,6 @@ public sealed class AiProvidersOptions
     public AzureOpenAiOptions AzureOpenAI { get; init; } = new();
 
     public OpenAiOptions OpenAI { get; init; } = new();
+
+    public GeminiOptions GeminiAi { get; init; } = new();
 }

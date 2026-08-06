@@ -5,10 +5,8 @@ using ChatBot.Api.Domain.Entities;
 using ChatBot.Api.Features.Chat.Contracts;
 using ChatBot.Api.Features.Chat.Models;
 using Microsoft.Extensions.AI;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using OllamaSharp.Models;
-using System.Runtime.CompilerServices;
 
 namespace ChatBot.Api.AI.Providers.Ollama;
 

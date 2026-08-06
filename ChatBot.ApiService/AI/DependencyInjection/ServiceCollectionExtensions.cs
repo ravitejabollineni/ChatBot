@@ -1,16 +1,19 @@
 ﻿using Azure;
 using Azure.AI.OpenAI;
+using ChatBot.Api.AI.Configuration;
+using ChatBot.Api.AI.Providers.AzureOpenAI;
+using ChatBot.Api.AI.Providers.Gemini;
+using ChatBot.Api.AI.Providers.Ollama;
+using ChatBot.Api.AI.Providers.OpenAI;
+using ChatBot.Api.AI.Routing;
+using ChatBot.Api.AI.TokenManagement;
 using ChatBot.Api.Features.Chat.Contracts;
 using ChatBot.Api.Features.Chat.Services;
 using ChatBot.Api.Features.Conversations;
 using ChatBot.Api.Features.Conversations.Contracts;
-using ChatBot.Api.AI.Configuration;
 using ChatBot.Api.Infrastructure.Persistence;
-using ChatBot.Api.AI.Providers.AzureOpenAI;
-using ChatBot.Api.AI.Providers.Ollama;
-using ChatBot.Api.AI.Routing;
-using ChatBot.Api.AI.Providers.OpenAI;
-using ChatBot.Api.AI.TokenManagement;
+using Google.GenAI;
+using Google.GenAI.Types;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Options;
 using OllamaSharp;
@@ -61,9 +64,14 @@ public static class ServiceCollectionExtensions
                      || (!string.IsNullOrWhiteSpace(o.Providers.OpenAI.ApiKey)
                          && !string.IsNullOrWhiteSpace(o.Providers.OpenAI.Model)),
                 "AI:Providers:OpenAI:ApiKey and Model are required when AI:DefaultProvider is 'OpenAI'.")
+            .Validate(
+                o => !IsSelected(o, ChatProviderNames.GeminiAI)
+                     || (!string.IsNullOrWhiteSpace(o.Providers.GeminiAi.ApiKey)
+                         && !string.IsNullOrWhiteSpace(o.Providers.GeminiAi.ChatModel)),
+                "AI:Providers:GeminiAI:ApiKey and ChatModel are required when AI:DefaultProvider is 'GeminiAI'.")
             .ValidateOnStart();
 
-       
+
         services.AddOptions<OpenAiOptions>()
             .Bind(configuration.GetSection(OpenAiOptions.SectionName));
 
@@ -73,11 +81,15 @@ public static class ServiceCollectionExtensions
         services.AddOptions<OllamaOptions>()
             .Bind(configuration.GetSection(OllamaOptions.SectionName));
 
+        services.AddOptions<GeminiOptions>()
+            .Bind(configuration.GetSection(GeminiOptions.SectionName));
+
         services.Configure<SystemPromptOptions>(configuration.GetSection(SystemPromptOptions.SectionName));
 
         services.AddKeyedSingleton<IChatProvider, AzureOpenAiChatProvider>(ChatProviderNames.AzureOpenAI);
         services.AddKeyedSingleton<IChatProvider, OpenAiChatProvider>(ChatProviderNames.OpenAI);
         services.AddKeyedSingleton<IChatProvider, OllamaChatProvider>(ChatProviderNames.Ollama);
+        services.AddKeyedSingleton<IChatProvider, GeminiChatProvider>(ChatProviderNames.GeminiAI);
 
 #pragma warning disable EXTEXP0001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
         services.AddHttpClient("AzureOpenAI")
@@ -119,6 +131,21 @@ public static class ServiceCollectionExtensions
             .AddResilienceHandler("ollama-timeout", builder =>
             {
                 builder.AddTimeout(TimeSpan.FromMinutes(5));
+            });
+
+        services.AddHttpClient("GeminiAI")
+            .ConfigureHttpClient(client =>
+            {
+                client.Timeout = Timeout.InfiniteTimeSpan;
+            })
+            .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+            {
+                PooledConnectionLifetime = TimeSpan.FromMinutes(5)
+            })
+            .RemoveAllResilienceHandlers()
+            .AddResilienceHandler("gemini-timeout", builder =>
+            {
+                builder.AddTimeout(TimeSpan.FromMinutes(2));
             });
 #pragma warning restore EXTEXP0001
 
@@ -166,6 +193,25 @@ public static class ServiceCollectionExtensions
                     .GetChatClient(options.DeploymentName)
                     .AsIChatClient();
             });
+
+        services.AddSingleton<Client>(sp =>
+        {
+            var options = sp
+                .GetRequiredService<IOptions<GeminiOptions>>()
+                .Value;
+
+            var httpClientFactory = sp.GetRequiredService<IHttpClientFactory>();
+
+            var clientOptions = new ClientOptions
+            {
+                HttpClientFactory = () =>
+                    httpClientFactory.CreateClient("GeminiAI")
+            };
+
+            return new Client(
+                apiKey: options.ApiKey,
+                clientOptions: clientOptions);
+        });
 
         return services;
     }

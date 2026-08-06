@@ -8,7 +8,9 @@ public static class ChatProviderNames
 
     public const string OpenAI = "OpenAI";
 
-    public static readonly string[] All = [Ollama, AzureOpenAI, OpenAI];
+    public const string GeminiAI = "GeminiAI";
+
+    public static readonly string[] All = [Ollama, AzureOpenAI, OpenAI, GeminiAI];
     public static string? Normalize(string? name)
         => All.FirstOrDefault(provider =>
             string.Equals(provider, name, StringComparison.OrdinalIgnoreCase));
