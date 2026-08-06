@@ -11,8 +11,7 @@ namespace ChatBot.Api.Features.Conversations;
 
 public sealed class ConversationService(
     IConversationRepository repository,
-    TimeProvider timeProvider,
-    IOptions<SystemPromptOptions> chatOptions)
+    TimeProvider timeProvider)
     : IConversationService
 {
     public async Task<Guid> CreateAsync(
@@ -21,15 +20,6 @@ public sealed class ConversationService(
         var now = timeProvider.GetUtcNow();
 
         var conversation = new Conversation(now);
-
-        var systemPrompt = chatOptions.Value.SystemPrompt;
-
-        if (!string.IsNullOrWhiteSpace(systemPrompt))
-        {
-            conversation.AddMessage(
-                new ConversationMessage(ChatRole.System, systemPrompt, now),
-                now);
-        }
 
         await repository.AddAsync(
             conversation,

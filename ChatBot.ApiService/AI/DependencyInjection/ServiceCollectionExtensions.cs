@@ -1,6 +1,11 @@
 ﻿using Azure;
 using Azure.AI.OpenAI;
 using ChatBot.Api.AI.Configuration;
+using ChatBot.Api.AI.Prompting;
+using ChatBot.Api.AI.Prompting.Contracts;
+using ChatBot.Api.AI.Prompts.Contracts;
+using ChatBot.Api.AI.Prompts.Parsing;
+using ChatBot.Api.AI.Prompts.Repository;
 using ChatBot.Api.AI.Providers.AzureOpenAI;
 using ChatBot.Api.AI.Providers.Gemini;
 using ChatBot.Api.AI.Providers.Ollama;
@@ -20,6 +25,8 @@ using OllamaSharp;
 using OpenAI;
 using Polly;
 using System.ClientModel.Primitives;
+using YamlDotNet.Serialization;
+using YamlDotNet.Serialization.NamingConventions;
 
 namespace ChatBot.Api.AI.DependencyInjection;
 
@@ -84,13 +91,20 @@ public static class ServiceCollectionExtensions
         services.AddOptions<GeminiOptions>()
             .Bind(configuration.GetSection(GeminiOptions.SectionName));
 
-        services.Configure<SystemPromptOptions>(configuration.GetSection(SystemPromptOptions.SectionName));
+        services.AddSingleton<IDeserializer>(_ =>
+             new DeserializerBuilder()
+        .WithNamingConvention(CamelCaseNamingConvention.Instance)
+        .IgnoreUnmatchedProperties()
+        .Build());
 
         services.AddKeyedSingleton<IChatProvider, AzureOpenAiChatProvider>(ChatProviderNames.AzureOpenAI);
         services.AddKeyedSingleton<IChatProvider, OpenAiChatProvider>(ChatProviderNames.OpenAI);
         services.AddKeyedSingleton<IChatProvider, OllamaChatProvider>(ChatProviderNames.Ollama);
         services.AddKeyedSingleton<IChatProvider, GeminiChatProvider>(ChatProviderNames.GeminiAI);
 
+        services.AddSingleton<IPromptRepository, FilePromptRepository>();
+        services.AddSingleton<IPromptParser, MarkdownPromptParser>();
+        services.AddScoped<IConversationBuilder, ConversationBuilder>();
 #pragma warning disable EXTEXP0001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
         services.AddHttpClient("AzureOpenAI")
             .ConfigureHttpClient(c =>

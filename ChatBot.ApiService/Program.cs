@@ -1,4 +1,6 @@
 using ChatBot.Api.AI.DependencyInjection;
+using ChatBot.Api.AI.Prompts.Contracts;
+using ChatBot.Api.AI.Prompts.Repository;
 using FastEndpoints;
 using Scalar.AspNetCore;
 
@@ -15,7 +17,6 @@ builder.Services.AddOpenApi();
 
 builder.Services.AddFastEndpoints();
 builder.Services.AddInfrastructure(builder.Configuration);
-
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.

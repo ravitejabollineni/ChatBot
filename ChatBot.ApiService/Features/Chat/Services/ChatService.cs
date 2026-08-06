@@ -1,4 +1,7 @@
-﻿using ChatBot.Api.Domain.Entities;
+﻿using ChatBot.Api.AI.Prompting.Contracts;
+using ChatBot.Api.AI.Prompts;
+using ChatBot.Api.AI.Prompts.Contracts;
+using ChatBot.Api.Domain.Entities;
 using ChatBot.Api.Domain.Enums;
 using ChatBot.Api.Features.Chat.Contracts;
 using ChatBot.Api.Features.Chat.Models;
@@ -9,7 +12,8 @@ using System.Text;
 namespace ChatBot.Api.Features.Chat.Services;
 
 public sealed class ChatService(
-    IConversationService conversationService,
+     IConversationService conversationService,
+    IConversationBuilder conversationBuilder,
     IChatProviderFactory providerFactory,
     ITokenManager tokenManager,
     TimeProvider timeProvider)
@@ -34,11 +38,13 @@ public sealed class ChatService(
             userMessage,
             now);
 
+        var history = await conversationBuilder.BuildAsync(PromptNames.Chat, conversation.Messages, cancellationToken);
+
         var provider = providerFactory.GetProvider(request.Model);
 
         var assistantResponse = await provider.SendAsync(
             request.Model,
-            conversation.Messages,
+            history,
             cancellationToken);
 
         var tokenUsage = await tokenManager.CalculateAsync(
@@ -80,7 +86,15 @@ public sealed class ChatService(
             request.UserMessage,
             timeProvider.GetUtcNow());
 
-        var history = new List<ConversationMessage>(conversation.Messages){ userMessage };
+        var history = new List<ConversationMessage>(conversation.Messages)
+        {
+            userMessage
+        };
+
+        var promptHistory = await conversationBuilder.BuildAsync(
+            PromptNames.Chat,
+            history,
+            cancellationToken);
 
         var provider = providerFactory.GetProvider(request.Model);
 
@@ -90,7 +104,7 @@ public sealed class ChatService(
         {
             await foreach (var chunk in provider.StreamAsync(
                 request.Model,
-                history,
+                promptHistory,
                 cancellationToken))
             {
                 if (!string.IsNullOrEmpty(chunk.Text))

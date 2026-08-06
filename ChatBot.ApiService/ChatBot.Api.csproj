@@ -23,6 +23,7 @@
     <PackageReference Include="OllamaSharp" Version="5.4.30" />
     <PackageReference Include="OpenAI" Version="2.12.0" />
     <PackageReference Include="Scalar.AspNetCore" Version="2.16.11" />
+    <PackageReference Include="YamlDotNet" Version="18.1.0" />
   </ItemGroup>
 
   <ItemGroup>
