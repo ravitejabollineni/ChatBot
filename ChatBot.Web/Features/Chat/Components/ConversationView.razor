@@ -24,6 +24,10 @@
         <div class="message-list" @ref="messageListRef">
             @if (ChatState.CurrentConversation is not null)
             {
+                var latestAssistantMessageId = ChatState.CurrentConversation.Messages
+                    .LastOrDefault(m => string.Equals(m.Role, "assistant", StringComparison.OrdinalIgnoreCase))
+                    ?.MessageId;
+
                 @foreach (var message in ChatState.CurrentConversation.Messages)
                 {
                     if (string.Equals(message.Role, "system", StringComparison.OrdinalIgnoreCase))
@@ -31,7 +35,8 @@
                         continue;
                     }
 
-                    <MessageBubble Message="message" />
+                    <MessageBubble @key="message.MessageId" Message="message"
+                                   IsLatestAssistantMessage="message.MessageId == latestAssistantMessageId" />
                 }
             }
 
@@ -103,6 +108,7 @@
             try
             {
                 await JS.InvokeVoidAsync("chatBot.scrollToBottom", messageListRef);
+                await JS.InvokeVoidAsync("chatBot.initializeCodeCopy", messageListRef);
             }
             catch (JSDisconnectedException)
             {

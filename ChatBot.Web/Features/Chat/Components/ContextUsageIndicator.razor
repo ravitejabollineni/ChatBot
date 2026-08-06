@@ -1,0 +1,42 @@
+@using System.Globalization
+@using ChatBot.Web.Contracts.Chat
+
+<MudTooltip Placement="Placement.Bottom" RootClass="context-usage-tooltip">
+    <TooltipContent>
+        <div>Input: @Usage.InputTokenCount.ToString("N0")</div>
+        <div>Output: @Usage.OutputTokenCount.ToString("N0")</div>
+        <div>Remaining: @Usage.RemainingTokenBudget.ToString("N0")</div>
+    </TooltipContent>
+    <ChildContent>
+        <div class="context-usage">
+            <span class="context-usage__label">Context Used @FormattedPercentage%</span>
+            <div class="context-usage__bar"
+                 role="progressbar"
+                 aria-label="Context window used"
+                 aria-valuemin="0"
+                 aria-valuemax="100"
+                 aria-valuenow="@FormattedPercentage">
+                <div class="context-usage__bar-fill @BarSeverityClass"
+                     style="width:@(ClampedPercentage.ToString(CultureInfo.InvariantCulture))%"></div>
+            </div>
+        </div>
+    </ChildContent>
+</MudTooltip>
+
+@code {
+    [Parameter, EditorRequired]
+    public TokenUsageResponse Usage { get; set; } = null!;
+
+    private double ClampedPercentage => Math.Clamp(Usage.PercentageUsed, 0, 100);
+
+    private string FormattedPercentage => Usage.PercentageUsed.ToString("0.##", CultureInfo.InvariantCulture);
+
+    // Same thresholds as TokenUsage.razor's BarSeverityClass, so the header widget and the
+    // in-conversation readout agree on what counts as "getting close to the limit".
+    private string BarSeverityClass => ClampedPercentage switch
+    {
+        >= 90 => "context-usage__bar-fill--critical",
+        >= 70 => "context-usage__bar-fill--warning",
+        _ => "context-usage__bar-fill--ok"
+    };
+}

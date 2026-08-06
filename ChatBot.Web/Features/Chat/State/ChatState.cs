@@ -37,7 +37,33 @@ public sealed class ChatState
 
     public string StreamingText { get; private set; } = string.Empty;
 
+    // In-memory, per-circuit only — there is no backend field/endpoint for feedback, so this is
+    // lost on reconnect/refresh rather than silently pretending to be persisted.
+    private readonly Dictionary<Guid, bool?> messageFeedback = [];
+
+    // ConversationSummaryResponse carries no message content, so a real title can only be
+    // derived once a conversation's messages have actually been loaded this session. Cached
+    // here rather than recomputed per render.
+    private readonly Dictionary<Guid, string> conversationTitles = [];
+
     public event Action? StateChanged;
+
+    public bool? GetMessageFeedback(Guid messageId) =>
+        messageFeedback.TryGetValue(messageId, out var value) ? value : null;
+
+    public void SetMessageFeedback(Guid messageId, bool isPositive)
+    {
+        if (GetMessageFeedback(messageId) == isPositive)
+        {
+            messageFeedback.Remove(messageId);
+        }
+        else
+        {
+            messageFeedback[messageId] = isPositive;
+        }
+
+        NotifyStateChanged();
+    }
 
     public void SetSelectedConversation(Guid conversationId)
     {
@@ -49,8 +75,64 @@ public sealed class ChatState
     public void SetConversation(GetConversationResponse conversation)
     {
         CurrentConversation = conversation;
+        CacheConversationTitle(conversation);
 
         NotifyStateChanged();
+    }
+
+    /// <summary>
+    /// Returns a title derived from <paramref name="conversationId"/>'s first user message, if
+    /// that conversation's messages have been loaded this session; otherwise a formatted
+    /// timestamp, since a conversation only ever listed in the sidebar (never opened) has no
+    /// message content to derive a title from.
+    /// </summary>
+    public string GetConversationTitle(Guid conversationId, DateTimeOffset fallbackTimestamp) =>
+        conversationTitles.TryGetValue(conversationId, out var title)
+            ? title
+            : fallbackTimestamp.ToLocalTime().ToString("MMM d, yyyy");
+
+    private void CacheConversationTitle(GetConversationResponse conversation)
+    {
+        if (conversationTitles.ContainsKey(conversation.ConversationId))
+        {
+            return;
+        }
+
+        var firstUserMessage = conversation.Messages
+            .FirstOrDefault(m => string.Equals(m.Role, "user", StringComparison.OrdinalIgnoreCase));
+
+        if (firstUserMessage is null)
+        {
+            return;
+        }
+
+        conversationTitles[conversation.ConversationId] = DeriveTitle(firstUserMessage.Content);
+    }
+
+    private static string DeriveTitle(string firstUserMessageContent)
+    {
+        const int maxLength = 48;
+
+        var firstLine = firstUserMessageContent
+            .Split('\n', 2)[0]
+            .Trim();
+
+        var collapsed = string.Join(' ', firstLine.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+
+        if (collapsed.Length <= maxLength)
+        {
+            return collapsed;
+        }
+
+        var truncated = collapsed[..maxLength];
+        var lastSpace = truncated.LastIndexOf(' ');
+
+        if (lastSpace > 0)
+        {
+            truncated = truncated[..lastSpace];
+        }
+
+        return $"{truncated}…";
     }
 
     public void SetConversations(
@@ -161,6 +243,7 @@ public sealed class ChatState
     public void CompleteGeneration(GetConversationResponse conversation)
     {
         CurrentConversation = conversation;
+        CacheConversationTitle(conversation);
         StreamingText = string.Empty;
         IsGenerating = false;
 

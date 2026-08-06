@@ -15,19 +15,34 @@
               placeholder="Type your message..."
               disabled="@ChatState.IsGenerating"></textarea>
 
-    <button class="btn btn-primary message-input__send"
-            @ref="sendButtonRef"
-            @onclick="SendAsync"
-            disabled="@ChatState.IsGenerating">
-        @(ChatState.IsGenerating ? "Thinking..." : "Send")
-    </button>
-
-    @if (ChatState.IsGenerating)
-    {
-        <button type="button" class="btn btn-secondary message-input__cancel" @onclick="CancelAsync">
-            Cancel
+    <div class="message-input__actions">
+        <button type="button" class="message-input__icon-btn" disabled
+                title="Attach files (coming soon)" aria-label="Attach files (coming soon)">
+            <i class="bi bi-paperclip"></i>
         </button>
-    }
+
+        <button type="button" class="message-input__icon-btn" disabled
+                title="Voice input (coming soon)" aria-label="Voice input (coming soon)">
+            <i class="bi bi-mic"></i>
+        </button>
+
+        @if (ChatState.IsGenerating)
+        {
+            <button type="button" class="message-input__icon-btn message-input__cancel"
+                    @onclick="CancelAsync" title="Stop generating" aria-label="Stop generating">
+                <i class="bi bi-stop-fill"></i>
+            </button>
+        }
+
+        <button class="message-input__icon-btn message-input__send"
+                @ref="sendButtonRef"
+                @onclick="SendAsync"
+                disabled="@ChatState.IsGenerating"
+                title="@(ChatState.IsGenerating ? "Thinking..." : "Send message")"
+                aria-label="@(ChatState.IsGenerating ? "Thinking..." : "Send message")">
+            <i class="bi @(ChatState.IsGenerating ? "bi-hourglass-split" : "bi-send-fill")"></i>
+        </button>
+    </div>
 </div>
 
 @code {

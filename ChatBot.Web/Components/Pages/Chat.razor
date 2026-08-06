@@ -56,11 +56,9 @@
 
         <MudSpacer />
 
-        @if (ContextChipLabel is not null)
+        @if (ContextUsage is not null)
         {
-            <MudChip T="string" Color="Color.Default" Size="Size.Small" Class="context-chip">
-                @ContextChipLabel
-            </MudChip>
+            <ContextUsageIndicator Usage="ContextUsage" />
         }
 
         <MudSelect T="string"
@@ -98,18 +96,9 @@
         await ChatUiService.InitializeAsync();
     }
 
-    private string? ContextChipLabel
-    {
-        get
-        {
-            var usage = ChatState.CurrentConversation?.Messages
-                .LastOrDefault(m => m.TokenUsage is not null)?.TokenUsage;
-
-            return usage is null
-                ? null
-                : $"{usage.RemainingTokenBudget:N0} / {usage.ContextLimit:N0} left";
-        }
-    }
+    private ChatBot.Web.Contracts.Chat.TokenUsageResponse? ContextUsage =>
+        ChatState.CurrentConversation?.Messages
+            .LastOrDefault(m => m.TokenUsage is not null)?.TokenUsage;
 
     private async Task CreateConversationAsync()
     {

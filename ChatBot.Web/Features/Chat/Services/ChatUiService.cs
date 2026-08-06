@@ -224,6 +224,24 @@ public sealed class ChatUiService(
     }
 
     /// <summary>
+    /// Resends the last user message as a new turn. There is no delete/replace-message endpoint,
+    /// so this appends rather than replaces — the honest behavior given the current API surface.
+    /// </summary>
+    public async Task RegenerateLastResponseAsync(string model)
+    {
+        if (chatState.IsGenerating)
+            return;
+
+        var lastUserMessage = chatState.CurrentConversation?.Messages
+            .LastOrDefault(m => string.Equals(m.Role, "user", StringComparison.OrdinalIgnoreCase));
+
+        if (lastUserMessage is null)
+            return;
+
+        await SendMessageStreamingAsync(model, lastUserMessage.Content);
+    }
+
+    /// <summary>
     /// Stops a running generation. Only cancels the token — the running loop in
     /// <see cref="SendMessageStreamingAsync"/> remains the sole owner of state transitions, so
     /// there is no race between this and the loop's own cleanup.
