@@ -12,10 +12,22 @@ public sealed class ChatUiService(
     ChatStreamClient chatStreamClient,
     ChatState chatState) : IDisposable
 {
+    // Matches ChatBot.Api's ConversationDefaults.UntitledTitle. Duplicated rather than shared
+    // across the process boundary — Web only ever sees this string over the wire, the same as
+    // any other DTO value.
+    private const string UntitledConversationTitle = "New Conversation";
+
+    private static readonly TimeSpan TitlePollInterval = TimeSpan.FromSeconds(2);
+    private const int TitlePollMaxAttempts = 5;
+
     // Owns the lifetime of the in-flight stream's cancellation. Cancelling it aborts the
     // underlying HTTP connection (see ChatStreamClient), which is the only way to actually
     // stop a running completion — there's nothing to "pause" server-side.
     private CancellationTokenSource? streamCts;
+
+    // Guards against piling up duplicate pollers for the same conversation — e.g. a second
+    // message sent in the same conversation before the first turn's title poll has finished.
+    private readonly HashSet<Guid> titlePollsInFlight = [];
 
     public async Task InitializeAsync()
     {
@@ -246,6 +258,15 @@ public sealed class ChatUiService(
 
                     chatState.CompleteGeneration(conversation);
                     chatState.UpsertConversationSummary(ToSummary(conversation));
+
+                    // Title generation is scheduled server-side but runs detached, well after
+                    // this response — there's no push channel back, so if it hasn't landed yet
+                    // this polls for it separately. Deliberately fire-and-forget: it must not
+                    // delay this method's return, and it never touches IsGenerating.
+                    if (string.Equals(conversation.Title, UntitledConversationTitle, StringComparison.Ordinal))
+                    {
+                        _ = PollForGeneratedTitleAsync(boundConversationId);
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -300,6 +321,51 @@ public sealed class ChatUiService(
     public void Dispose()
     {
         CancelGeneration();
+    }
+
+    /// <summary>
+    /// Polls a few times, a couple of seconds apart, for <paramref name="conversationId"/>'s
+    /// title to change away from the placeholder. Updates only the title on
+    /// <see cref="ChatState"/> — never the preview, never any loading flag — and gives up
+    /// silently once <see cref="TitlePollMaxAttempts"/> is reached, which is the expected
+    /// outcome for a trivial first exchange that was never eligible for title generation.
+    /// </summary>
+    private async Task PollForGeneratedTitleAsync(Guid conversationId)
+    {
+        if (!titlePollsInFlight.Add(conversationId))
+        {
+            return;
+        }
+
+        try
+        {
+            for (var attempt = 0; attempt < TitlePollMaxAttempts; attempt++)
+            {
+                await Task.Delay(TitlePollInterval);
+
+                GetConversationResponse conversation;
+
+                try
+                {
+                    conversation = await conversationApi.GetConversationAsync(conversationId);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Unable to poll for generated title: {ex.Message}");
+                    return;
+                }
+
+                if (!string.Equals(conversation.Title, UntitledConversationTitle, StringComparison.Ordinal))
+                {
+                    chatState.UpdateConversationTitle(conversationId, conversation.Title);
+                    return;
+                }
+            }
+        }
+        finally
+        {
+            titlePollsInFlight.Remove(conversationId);
+        }
     }
 
     private static ConversationSummaryResponse ToSummary(GetConversationResponse conversation) =>

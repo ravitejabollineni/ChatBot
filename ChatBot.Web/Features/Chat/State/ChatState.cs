@@ -108,6 +108,35 @@ public sealed class ChatState
         NotifyStateChanged();
     }
 
+    /// <summary>
+    /// Applies a background-generated title to one sidebar entry, in place. Deliberately narrow:
+    /// unlike <see cref="UpsertConversationSummary"/> this never touches Preview, never re-sorts,
+    /// and has nothing to do with <see cref="IsGenerating"/> — title generation is a silent
+    /// background update, not a loading state the UI should react to.
+    /// </summary>
+    public void UpdateConversationTitle(Guid conversationId, string title)
+    {
+        var changed = false;
+
+        Conversations = Conversations
+            .Select(c =>
+            {
+                if (c.ConversationId != conversationId || c.Title == title)
+                {
+                    return c;
+                }
+
+                changed = true;
+                return c with { Title = title };
+            })
+            .ToList();
+
+        if (changed)
+        {
+            NotifyStateChanged();
+        }
+    }
+
     public void SetConversations(
         IReadOnlyList<ConversationSummaryResponse> conversations)
     {
