@@ -26,4 +26,9 @@ public static class PromptNames
     /// Prompt used for research-related tasks.
     /// </summary>
     public const string Research = "Research";
+
+    /// <summary>
+    /// Prompt used to generate a short conversation title from its first exchange.
+    /// </summary>
+    public const string ConversationTitle = "ConversationTitle";
 }
