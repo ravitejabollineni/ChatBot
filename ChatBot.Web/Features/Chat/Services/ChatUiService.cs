@@ -17,8 +17,11 @@ public sealed class ChatUiService(
     // any other DTO value.
     private const string UntitledConversationTitle = "New Conversation";
 
-    private static readonly TimeSpan TitlePollInterval = TimeSpan.FromSeconds(2);
-    private const int TitlePollMaxAttempts = 5;
+    // Local/slow models can take tens of seconds to generate a title, especially for a long
+    // first exchange (the whole first user + assistant message is re-sent as context) — 60s
+    // total comfortably covers that instead of giving up while the server is still working.
+    private static readonly TimeSpan TitlePollInterval = TimeSpan.FromSeconds(3);
+    private const int TitlePollMaxAttempts = 20;
 
     // Owns the lifetime of the in-flight stream's cancellation. Cancelling it aborts the
     // underlying HTTP connection (see ChatStreamClient), which is the only way to actually
@@ -324,8 +327,8 @@ public sealed class ChatUiService(
     }
 
     /// <summary>
-    /// Polls a few times, a couple of seconds apart, for <paramref name="conversationId"/>'s
-    /// title to change away from the placeholder. Updates only the title on
+    /// Polls periodically, for up to <see cref="TitlePollMaxAttempts"/> * <see cref="TitlePollInterval"/>,
+    /// for <paramref name="conversationId"/>'s title to change away from the placeholder. Updates only the title on
     /// <see cref="ChatState"/> — never the preview, never any loading flag — and gives up
     /// silently once <see cref="TitlePollMaxAttempts"/> is reached, which is the expected
     /// outcome for a trivial first exchange that was never eligible for title generation.

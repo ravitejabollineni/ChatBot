@@ -83,8 +83,13 @@
         return order.Select(label => new ConversationGroup(label, buckets[label]));
     }
 
+    // "Generating response…" only stands in for a preview that doesn't exist yet (a
+    // conversation's first turn). Once a real preview exists, it stays on screen through
+    // every later turn's generation and is only replaced once that turn's own preview lands.
     private string GetPreview(ConversationSummaryResponse conversation) =>
-        ChatState.IsGenerating && ChatState.SelectedConversationId == conversation.ConversationId
+        ChatState.IsGenerating
+            && ChatState.SelectedConversationId == conversation.ConversationId
+            && string.IsNullOrEmpty(conversation.Preview)
             ? "Generating response…"
             : conversation.Preview ?? "No messages yet";
 

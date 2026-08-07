@@ -62,6 +62,9 @@ public sealed class ConversationTitleGenerator(
             title = title["title:".Length..].Trim();
         }
 
+        // A model that ignores "no Markdown" typically wraps the whole title as a heading.
+        title = title.TrimStart('#').TrimStart();
+
         title = title.Trim('"', '\'', '“', '”', '‘', '’');
         title = title.TrimEnd('.', '!', '?', ';', ',');
 
