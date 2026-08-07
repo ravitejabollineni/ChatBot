@@ -12,17 +12,6 @@ public sealed class ConversationMetadataService(
     : IConversationMetadataService
 {
     private const int PreviewMaxLength = 140;
-    private const int TrivialExchangeMinLength = 15;
-
-    // First-message greetings/acks that don't carry enough topic to title from — checked
-    // against the trimmed, lowercased, trailing-punctuation-stripped user message.
-    private static readonly HashSet<string> TrivialGreetings = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "hi", "hello", "hey", "yo",
-        "thanks", "thank you", "ty",
-        "ok", "okay", "k",
-        "sure", "yes", "no", "cool", "great", "got it",
-    };
 
     public void ApplyPreview(Conversation conversation, ConversationMessage assistantMessage)
     {
@@ -102,26 +91,18 @@ public sealed class ConversationMetadataService(
         }
     }
 
+    // Deliberately permissive: ChatGPT/Claude title every conversation, including short
+    // greetings ("Hello" becomes something like "Friendly Greeting") — the LLM-based
+    // generator handles trivial exchanges fine, so the only real requirement is that there's
+    // an actual exchange to title from.
     private static bool IsEligibleForTitleGeneration(Conversation conversation)
     {
         var firstUserMessage = conversation.Messages.FirstOrDefault(m => m.Role == ChatRole.User);
         var firstAssistantMessage = conversation.Messages.FirstOrDefault(m => m.Role == ChatRole.Assistant);
 
-        if (firstUserMessage is null || firstAssistantMessage is null)
-        {
-            return false;
-        }
-
-        var userContent = firstUserMessage.Content.Trim();
-        var normalizedUserContent = userContent.TrimEnd('.', '!', '?');
-
-        if (TrivialGreetings.Contains(normalizedUserContent))
-        {
-            return false;
-        }
-
-        var combinedLength = userContent.Length + firstAssistantMessage.Content.Trim().Length;
-
-        return combinedLength > TrivialExchangeMinLength;
+        return firstUserMessage is not null
+            && firstAssistantMessage is not null
+            && !string.IsNullOrWhiteSpace(firstUserMessage.Content)
+            && !string.IsNullOrWhiteSpace(firstAssistantMessage.Content);
     }
 }

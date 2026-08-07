@@ -3,7 +3,10 @@
 <button class="conversation-item @(IsActive ? "conversation-item--active" : string.Empty)"
         @onclick="() => OnSelect.InvokeAsync(Conversation.ConversationId)">
     <span class="conversation-item__title">@Title</span>
-    <span class="conversation-item__meta">@Preview</span>
+    @if (!string.IsNullOrEmpty(Preview))
+    {
+        <span class="conversation-item__meta">@Preview</span>
+    }
 </button>
 
 @code {
@@ -13,8 +16,8 @@
     [Parameter, EditorRequired]
     public string Title { get; set; } = null!;
 
-    [Parameter, EditorRequired]
-    public string Preview { get; set; } = null!;
+    [Parameter]
+    public string? Preview { get; set; }
 
     [Parameter]
     public bool IsActive { get; set; }

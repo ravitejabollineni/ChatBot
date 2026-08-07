@@ -14,10 +14,8 @@
     }
     else if (ChatState.Conversations.Count == 0)
     {
-        <div class="empty-state" style="display: block;">
-            <div>No conversations yet.</div>
-            <div>Start a new chat to begin.</div>
-        </div>
+        @* Nothing to show — matches ChatGPT's sidebar, which just leaves this area empty
+           rather than surfacing an explicit "no conversations" card. *@
     }
     else
     {
@@ -86,12 +84,14 @@
     // "Generating response…" only stands in for a preview that doesn't exist yet (a
     // conversation's first turn). Once a real preview exists, it stays on screen through
     // every later turn's generation and is only replaced once that turn's own preview lands.
-    private string GetPreview(ConversationSummaryResponse conversation) =>
+    // Otherwise, with nothing to show yet, the item renders with just its title — no
+    // placeholder "No messages yet" line underneath.
+    private string? GetPreview(ConversationSummaryResponse conversation) =>
         ChatState.IsGenerating
             && ChatState.SelectedConversationId == conversation.ConversationId
             && string.IsNullOrEmpty(conversation.Preview)
             ? "Generating response…"
-            : conversation.Preview ?? "No messages yet";
+            : string.IsNullOrEmpty(conversation.Preview) ? null : conversation.Preview;
 
     private async Task SelectConversationAsync(Guid conversationId)
     {

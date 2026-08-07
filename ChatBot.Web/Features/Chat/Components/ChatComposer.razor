@@ -1,3 +1,5 @@
+@implements IDisposable
+
 @using ChatBot.Web.Features.Chat.Services
 @using ChatBot.Web.Features.Chat.State
 @using Microsoft.JSInterop
@@ -55,6 +57,26 @@
     // working the moment a generation finishes.
     private ElementReference textareaRef;
     private ElementReference sendButtonRef;
+
+    // Send/cancel state (IsGenerating) is driven entirely by ChatState, mutated by
+    // ChatUiService while this component's own SendAsync handler is still awaiting the
+    // in-flight stream — cascading re-renders from the parent aren't reliable while that
+    // handler's Task is pending, so this subscribes directly, the same as ConversationView
+    // and ConversationList do.
+    protected override void OnInitialized()
+    {
+        ChatState.StateChanged += OnStateChanged;
+    }
+
+    private void OnStateChanged()
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        ChatState.StateChanged -= OnStateChanged;
+    }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {

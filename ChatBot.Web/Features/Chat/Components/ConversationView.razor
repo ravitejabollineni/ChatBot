@@ -70,6 +70,12 @@
     private DotNetObjectReference<ConversationView>? dotNetRef;
     private IJSObjectReference? reconnectObserver;
 
+    // Tracks which conversation the message list was last auto-scrolled for, so switching to
+    // a (different or newly-loaded) conversation still jumps to the bottom once, while every
+    // other render — the ~75ms flush cadence during streaming — only auto-follows if the user
+    // hasn't scrolled away to reread something (see chat.js's scrollToBottom).
+    private Guid? lastScrolledConversationId;
+
     protected override void OnInitialized()
     {
         ChatState.StateChanged += OnStateChanged;
@@ -105,9 +111,13 @@
 
         if (hasMessageList)
         {
+            var forceScroll = firstRender || ChatState.SelectedConversationId != lastScrolledConversationId;
+            lastScrolledConversationId = ChatState.SelectedConversationId;
+
             try
             {
-                await JS.InvokeVoidAsync("chatBot.scrollToBottom", messageListRef);
+                await JS.InvokeVoidAsync("chatBot.initializeAutoScroll", messageListRef);
+                await JS.InvokeVoidAsync("chatBot.scrollToBottom", messageListRef, forceScroll);
                 await JS.InvokeVoidAsync("chatBot.initializeCodeCopy", messageListRef);
             }
             catch (JSDisconnectedException)
