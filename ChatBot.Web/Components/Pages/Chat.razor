@@ -25,7 +25,7 @@
                        Color="Color.Primary"
                        StartIcon="bi bi-plus-lg"
                        FullWidth="true"
-                       OnClick="CreateConversationAsync">
+                       OnClick="StartNewChat">
                 New Chat
             </MudButton>
 
@@ -100,9 +100,9 @@
         ChatState.CurrentConversation?.Messages
             .LastOrDefault(m => m.TokenUsage is not null)?.TokenUsage;
 
-    private async Task CreateConversationAsync()
+    private void StartNewChat()
     {
-        await ChatUiService.CreateConversationAsync();
+        ChatUiService.StartNewChat();
     }
 
     private async Task OpenSettingsAsync()

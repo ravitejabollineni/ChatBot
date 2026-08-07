@@ -66,7 +66,10 @@ public sealed class ChatUiService(
 
             await LoadConversationAsync(response.ConversationId);
 
-            await RefreshConversationListAsync();
+            if (chatState.CurrentConversation is not null)
+            {
+                chatState.UpsertConversationSummary(ToSummary(chatState.CurrentConversation));
+            }
 
             chatState.SetError(null);
         }
@@ -75,6 +78,18 @@ public sealed class ChatUiService(
             Console.WriteLine($"Unable to create a conversation: {ex.Message}");
             chatState.SetError("Unable to start a new chat. Please try again.");
         }
+    }
+
+    /// <summary>
+    /// Resets to a fresh, unsaved conversation. Purely client-side and synchronous-safe to call
+    /// at any time, including mid-stream — cancelling first means the abandoned stream's eventual
+    /// <c>finally</c> in <see cref="SendMessageStreamingAsync"/> is guarded by its own bound
+    /// conversation id and can't clobber the state this resets.
+    /// </summary>
+    public void StartNewChat()
+    {
+        CancelGeneration();
+        chatState.StartNewConversation();
     }
 
     public async Task LoadConversationAsync(Guid conversationId)
@@ -150,12 +165,21 @@ public sealed class ChatUiService(
         if (chatState.IsGenerating)
             return;
 
+        // Bound at entry, not read again below: a mid-stream New Chat swaps out
+        // SelectedConversationId on ChatState, but this stream's own finally must only ever
+        // act on the conversation it actually started for.
+        var boundConversationId = chatState.SelectedConversationId.Value;
+
         chatState.AppendPendingUserMessage(message);
         chatState.SetError(null);
         chatState.BeginGeneration();
 
-        streamCts = new CancellationTokenSource();
-        var cancellationToken = streamCts.Token;
+        // Captured into a local: cancelling and immediately starting a new stream would
+        // otherwise race this call's own cleanup (below) against the new call's freshly
+        // assigned streamCts field.
+        var localCts = new CancellationTokenSource();
+        streamCts = localCts;
+        var cancellationToken = localCts.Token;
 
         // Deltas are buffered and only flushed to ChatState on a ~75ms cadence (or immediately
         // on the final chunk). Every flush re-renders all three ChatState subscribers, so
@@ -168,7 +192,7 @@ public sealed class ChatUiService(
         {
             await foreach (var chunk in chatStreamClient.StreamMessageAsync(
                 new SendMessageRequest(
-                    chatState.SelectedConversationId.Value,
+                    boundConversationId,
                     model,
                     message),
                 cancellationToken))
@@ -199,26 +223,36 @@ public sealed class ChatUiService(
         }
         finally
         {
-            if (pending.Length > 0)
+            if (ReferenceEquals(streamCts, localCts))
             {
-                chatState.AppendStreamingText(pending.ToString());
+                streamCts = null;
             }
 
-            streamCts.Dispose();
-            streamCts = null;
+            localCts.Dispose();
 
-            try
+            // A New Chat click during this stream already reset ChatState to a different (or no)
+            // conversation — that reset must not be clobbered by this now-abandoned stream's
+            // refetch, and the abandoned stream has no bearing on the newly selected one either.
+            if (chatState.SelectedConversationId == boundConversationId)
             {
-                var conversation = await conversationApi.GetConversationAsync(
-                    chatState.SelectedConversationId.Value);
+                if (pending.Length > 0)
+                {
+                    chatState.AppendStreamingText(pending.ToString());
+                }
 
-                chatState.CompleteGeneration(conversation);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Unable to refresh conversation after streaming: {ex.Message}");
-                chatState.EndGeneration();
-                chatState.SetError("Unable to refresh the conversation. Please try again.");
+                try
+                {
+                    var conversation = await conversationApi.GetConversationAsync(boundConversationId);
+
+                    chatState.CompleteGeneration(conversation);
+                    chatState.UpsertConversationSummary(ToSummary(conversation));
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Unable to refresh conversation after streaming: {ex.Message}");
+                    chatState.EndGeneration();
+                    chatState.SetError("Unable to refresh the conversation. Please try again.");
+                }
             }
         }
     }
@@ -268,19 +302,11 @@ public sealed class ChatUiService(
         CancelGeneration();
     }
 
-    private async Task RefreshConversationListAsync()
-    {
-        try
-        {
-            var conversations =
-                await conversationApi.GetConversationsAsync();
-
-            chatState.SetConversations(conversations);
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Unable to refresh conversations: {ex.Message}");
-            chatState.SetError("Unable to refresh the conversation list.");
-        }
-    }
+    private static ConversationSummaryResponse ToSummary(GetConversationResponse conversation) =>
+        new(
+            conversation.ConversationId,
+            conversation.CreatedAt,
+            conversation.LastUpdatedAt,
+            conversation.Title,
+            conversation.Preview);
 }

@@ -28,7 +28,7 @@
                 @foreach (var conversation in group.Conversations)
                 {
                     <ConversationItem Conversation="conversation"
-                                       Title="@(ChatState.GetConversationTitle(conversation.ConversationId, conversation.LastUpdatedAt))"
+                                       Title="@conversation.Title"
                                        IsActive="ChatState.SelectedConversationId == conversation.ConversationId"
                                        OnSelect="SelectConversationAsync" />
                 }

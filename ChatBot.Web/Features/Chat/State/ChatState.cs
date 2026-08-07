@@ -41,11 +41,6 @@ public sealed class ChatState
     // lost on reconnect/refresh rather than silently pretending to be persisted.
     private readonly Dictionary<Guid, bool?> messageFeedback = [];
 
-    // ConversationSummaryResponse carries no message content, so a real title can only be
-    // derived once a conversation's messages have actually been loaded this session. Cached
-    // here rather than recomputed per render.
-    private readonly Dictionary<Guid, string> conversationTitles = [];
-
     public event Action? StateChanged;
 
     public bool? GetMessageFeedback(Guid messageId) =>
@@ -75,64 +70,42 @@ public sealed class ChatState
     public void SetConversation(GetConversationResponse conversation)
     {
         CurrentConversation = conversation;
-        CacheConversationTitle(conversation);
 
         NotifyStateChanged();
     }
 
     /// <summary>
-    /// Returns a title derived from <paramref name="conversationId"/>'s first user message, if
-    /// that conversation's messages have been loaded this session; otherwise a formatted
-    /// timestamp, since a conversation only ever listed in the sidebar (never opened) has no
-    /// message content to derive a title from.
+    /// Resets to a brand-new, unsaved conversation. Leaves <see cref="Conversations"/> untouched
+    /// — a conversation is only added to the sidebar once the first message actually creates one
+    /// server-side.
     /// </summary>
-    public string GetConversationTitle(Guid conversationId, DateTimeOffset fallbackTimestamp) =>
-        conversationTitles.TryGetValue(conversationId, out var title)
-            ? title
-            : fallbackTimestamp.ToLocalTime().ToString("MMM d, yyyy");
-
-    private void CacheConversationTitle(GetConversationResponse conversation)
+    public void StartNewConversation()
     {
-        if (conversationTitles.ContainsKey(conversation.ConversationId))
-        {
-            return;
-        }
+        SelectedConversationId = null;
+        CurrentConversation = null;
+        StreamingText = string.Empty;
+        IsGenerating = false;
+        ErrorMessage = null;
 
-        var firstUserMessage = conversation.Messages
-            .FirstOrDefault(m => string.Equals(m.Role, "user", StringComparison.OrdinalIgnoreCase));
-
-        if (firstUserMessage is null)
-        {
-            return;
-        }
-
-        conversationTitles[conversation.ConversationId] = DeriveTitle(firstUserMessage.Content);
+        NotifyStateChanged();
     }
 
-    private static string DeriveTitle(string firstUserMessageContent)
+    /// <summary>
+    /// Inserts or replaces a single sidebar entry in place, re-sorted by recency, instead of
+    /// refetching the whole list — so a new or just-updated conversation appears immediately
+    /// without a full-list reload flash.
+    /// </summary>
+    public void UpsertConversationSummary(ConversationSummaryResponse summary)
     {
-        const int maxLength = 48;
+        var withoutExisting = Conversations
+            .Where(c => c.ConversationId != summary.ConversationId);
 
-        var firstLine = firstUserMessageContent
-            .Split('\n', 2)[0]
-            .Trim();
+        Conversations = withoutExisting
+            .Append(summary)
+            .OrderByDescending(c => c.LastUpdatedAt)
+            .ToList();
 
-        var collapsed = string.Join(' ', firstLine.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
-
-        if (collapsed.Length <= maxLength)
-        {
-            return collapsed;
-        }
-
-        var truncated = collapsed[..maxLength];
-        var lastSpace = truncated.LastIndexOf(' ');
-
-        if (lastSpace > 0)
-        {
-            truncated = truncated[..lastSpace];
-        }
-
-        return $"{truncated}…";
+        NotifyStateChanged();
     }
 
     public void SetConversations(
@@ -243,7 +216,6 @@ public sealed class ChatState
     public void CompleteGeneration(GetConversationResponse conversation)
     {
         CurrentConversation = conversation;
-        CacheConversationTitle(conversation);
         StreamingText = string.Empty;
         IsGenerating = false;
 
