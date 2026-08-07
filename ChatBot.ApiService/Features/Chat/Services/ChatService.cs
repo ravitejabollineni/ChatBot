@@ -6,6 +6,7 @@ using ChatBot.Api.Domain.Enums;
 using ChatBot.Api.Features.Chat.Contracts;
 using ChatBot.Api.Features.Chat.Models;
 using ChatBot.Api.Features.Conversations.Contracts;
+using ChatBot.Api.Features.Conversations.Metadata;
 using System.Runtime.CompilerServices;
 using System.Text;
 
@@ -15,6 +16,7 @@ public sealed class ChatService(
      IConversationService conversationService,
     IConversationBuilder conversationBuilder,
     IChatProviderFactory providerFactory,
+    IConversationMetadataService metadataService,
     ITokenManager tokenManager,
     TimeProvider timeProvider)
     : IChatService
@@ -63,8 +65,15 @@ public sealed class ChatService(
             assistantMessage,
             assistantMessage.CreatedAt);
 
+        metadataService.ApplyPreview(conversation, assistantMessage);
+
         await conversationService.SaveAsync(
             conversation,
+            cancellationToken);
+
+        await metadataService.ScheduleTitleGenerationAsync(
+            conversation,
+            request.Model,
             cancellationToken);
 
         return new ChatResponse(
@@ -157,10 +166,20 @@ public sealed class ChatService(
             conversation.AddMessage(
                 assistantMessage,
                 assistantMessage.CreatedAt);
+
+            metadataService.ApplyPreview(conversation, assistantMessage);
         }
 
         await conversationService.SaveAsync(
             conversation,
             persistenceCancellation);
+
+        if (!string.IsNullOrWhiteSpace(assistantResponse))
+        {
+            await metadataService.ScheduleTitleGenerationAsync(
+                conversation,
+                model,
+                persistenceCancellation);
+        }
     }
 }

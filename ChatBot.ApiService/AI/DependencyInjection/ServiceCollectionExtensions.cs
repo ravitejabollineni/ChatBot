@@ -16,6 +16,7 @@ using ChatBot.Api.Features.Chat.Contracts;
 using ChatBot.Api.Features.Chat.Services;
 using ChatBot.Api.Features.Conversations;
 using ChatBot.Api.Features.Conversations.Contracts;
+using ChatBot.Api.Features.Conversations.Metadata;
 using ChatBot.Api.Infrastructure.Persistence;
 using Google.GenAI;
 using Google.GenAI.Types;
@@ -43,6 +44,9 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IChatProviderFactory, ChatProviderFactory>();
 
         services.AddScoped<IChatService, ChatService>();
+
+        services.AddScoped<IConversationTitleGenerator, ConversationTitleGenerator>();
+        services.AddScoped<IConversationMetadataService, ConversationMetadataService>();
 
         services.AddSingleton<ITokenManager, EstimatingTokenManager>();
         services.AddOptions<AiOptions>()
