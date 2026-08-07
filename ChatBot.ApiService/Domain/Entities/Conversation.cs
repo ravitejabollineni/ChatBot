@@ -1,4 +1,6 @@
-﻿namespace ChatBot.Api.Domain.Entities;
+﻿using ChatBot.Api.Domain.ValueObjects;
+
+namespace ChatBot.Api.Domain.Entities;
 
 public sealed class Conversation
 {
@@ -9,6 +11,8 @@ public sealed class Conversation
     public DateTimeOffset CreatedAt { get; }
 
     public DateTimeOffset LastUpdatedAt { get; private set; }
+
+    public ConversationMetadata Metadata { get; private set; } = ConversationMetadata.CreateDefault();
 
     public IReadOnlyList<ConversationMessage> Messages => _messages.AsReadOnly();
 
@@ -35,5 +39,12 @@ public sealed class Conversation
         _messages.Clear();
 
         LastUpdatedAt = updatedAt;
+    }
+
+    public void UpdateMetadata(ConversationMetadata metadata)
+    {
+        ArgumentNullException.ThrowIfNull(metadata);
+
+        Metadata = metadata;
     }
 }

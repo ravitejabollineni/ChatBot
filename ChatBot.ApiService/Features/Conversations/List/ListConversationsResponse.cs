@@ -3,4 +3,6 @@
 public sealed record ListConversationResponse(
     Guid ConversationId,
     DateTimeOffset CreatedAt,
-    DateTimeOffset LastUpdatedAt);
+    DateTimeOffset LastUpdatedAt,
+    string Title,
+    string? Preview);

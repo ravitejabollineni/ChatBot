@@ -9,6 +9,8 @@ public static class ConversationMappings
             conversation.Id,
             conversation.CreatedAt,
             conversation.LastUpdatedAt,
+            conversation.Metadata.Title,
+            conversation.Metadata.Preview,
             conversation.Messages
                 .Select(m =>
                     new MessageResponse(

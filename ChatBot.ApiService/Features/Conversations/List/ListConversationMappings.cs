@@ -11,6 +11,8 @@ public static class ListConversationMappings
         return new ListConversationResponse(
             ConversationId: conversation.Id,
             CreatedAt: conversation.CreatedAt,
-            LastUpdatedAt: conversation.LastUpdatedAt);
+            LastUpdatedAt: conversation.LastUpdatedAt,
+            Title: conversation.Metadata.Title,
+            Preview: conversation.Metadata.Preview);
     }
 }
