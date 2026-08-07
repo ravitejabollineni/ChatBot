@@ -342,6 +342,9 @@ html, body {
 .conversation-item__meta {
     font-size: 0.72rem;
     color: #94a3b8;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .empty-state {

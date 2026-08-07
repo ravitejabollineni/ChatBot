@@ -29,6 +29,7 @@
                 {
                     <ConversationItem Conversation="conversation"
                                        Title="@conversation.Title"
+                                       Preview="@GetPreview(conversation)"
                                        IsActive="ChatState.SelectedConversationId == conversation.ConversationId"
                                        OnSelect="SelectConversationAsync" />
                 }
@@ -52,40 +53,40 @@
         var yesterday = today.AddDays(-1);
         var pastWeek = today.AddDays(-7);
 
-        var buckets = new (string Label, List<ConversationSummaryResponse> Items)[]
-        {
-            ("Today", []),
-            ("Yesterday", []),
-            ("Past 7 days", []),
-            ("Older", []),
-        };
+        var buckets = new Dictionary<string, List<ConversationSummaryResponse>>();
+        var order = new List<string>();
 
-        foreach (var conversation in ChatState.Conversations)
+        foreach (var conversation in ChatState.Conversations.OrderByDescending(c => c.LastUpdatedAt))
         {
             var date = conversation.LastUpdatedAt.ToLocalTime().Date;
 
-            if (date == today)
+            var label = date == today
+                ? "Today"
+                : date == yesterday
+                    ? "Yesterday"
+                    : date > pastWeek
+                        ? "Previous 7 Days"
+                        : date.Year == today.Year
+                            ? date.ToString("MMMM")
+                            : "Older";
+
+            if (!buckets.TryGetValue(label, out var items))
             {
-                buckets[0].Items.Add(conversation);
+                items = [];
+                buckets[label] = items;
+                order.Add(label);
             }
-            else if (date == yesterday)
-            {
-                buckets[1].Items.Add(conversation);
-            }
-            else if (date > pastWeek)
-            {
-                buckets[2].Items.Add(conversation);
-            }
-            else
-            {
-                buckets[3].Items.Add(conversation);
-            }
+
+            items.Add(conversation);
         }
 
-        return buckets
-            .Where(bucket => bucket.Items.Count > 0)
-            .Select(bucket => new ConversationGroup(bucket.Label, bucket.Items));
+        return order.Select(label => new ConversationGroup(label, buckets[label]));
     }
+
+    private string GetPreview(ConversationSummaryResponse conversation) =>
+        ChatState.IsGenerating && ChatState.SelectedConversationId == conversation.ConversationId
+            ? "Generating response…"
+            : conversation.Preview ?? "No messages yet";
 
     private async Task SelectConversationAsync(Guid conversationId)
     {
