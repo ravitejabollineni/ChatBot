@@ -16,7 +16,8 @@ var postgres = builder
     .AddPostgres(
         "postgres",
         password: postgresPassword)
-    .WithHostPort(5432);
+    .WithHostPort(5432)
+    .WithDataVolume();
 
 var database = postgres.AddDatabase("chatbot");
 
