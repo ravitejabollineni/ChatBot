@@ -1,28 +1,27 @@
 ﻿using ChatBot.Api.Domain.Entities;
-using ChatBot.Api.Domain.Enums;
-using ChatBot.Api.Features.Conversations.Get;
-using ChatBot.Api.Features.Conversations.Create;
-using ChatBot.Api.AI.Configuration;
-using ChatBot.Api.Infrastructure.Persistence;
 using ChatBot.Api.Features.Conversations.Contracts;
-using Microsoft.Extensions.Options;
+using ChatBot.Api.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
 
 namespace ChatBot.Api.Features.Conversations;
 
 public sealed class ConversationService(
-    IConversationRepository repository,
+    ChatBotDbContext dbContext,
     TimeProvider timeProvider)
     : IConversationService
 {
     public async Task<Guid> CreateAsync(
-       CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default)
     {
         var now = timeProvider.GetUtcNow();
 
         var conversation = new Conversation(now);
 
-        await repository.AddAsync(
+        await dbContext.Conversations.AddAsync(
             conversation,
+            cancellationToken);
+
+        await dbContext.SaveChangesAsync(
             cancellationToken);
 
         return conversation.Id;
@@ -32,9 +31,11 @@ public sealed class ConversationService(
         Guid conversationId,
         CancellationToken cancellationToken = default)
     {
-        return await repository.GetByIdAsync(
-            conversationId,
-            cancellationToken);
+        return await dbContext.Conversations
+            .Include(x => x.Messages)
+            .SingleOrDefaultAsync(
+                x => x.Id == conversationId,
+                cancellationToken);
     }
 
     public async Task<Conversation> GetRequiredAsync(
@@ -54,19 +55,24 @@ public sealed class ConversationService(
         return conversation;
     }
 
-    public Task SaveAsync(
-        Conversation conversation,
-        CancellationToken cancellationToken = default)
-    {
-        return repository.UpdateAsync(
-            conversation,
-            cancellationToken);
-    }
-
     public async Task<IReadOnlyCollection<Conversation>> ListAsync(
         CancellationToken cancellationToken = default)
     {
-        return await repository.GetAllAsync(
+        return await dbContext.Conversations
+            .AsNoTracking()
+            .OrderByDescending(x => x.LastUpdatedAt)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task SaveAsync(
+        Conversation conversation,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(conversation);
+
+        dbContext.Conversations.Update(conversation);
+
+        await dbContext.SaveChangesAsync(
             cancellationToken);
     }
 
@@ -74,8 +80,19 @@ public sealed class ConversationService(
         Guid conversationId,
         CancellationToken cancellationToken = default)
     {
-        await repository.DeleteAsync(
-            conversationId,
+        var conversation = await dbContext.Conversations
+            .SingleOrDefaultAsync(
+                x => x.Id == conversationId,
+                cancellationToken);
+
+        if (conversation is null)
+        {
+            return;
+        }
+
+        dbContext.Conversations.Remove(conversation);
+
+        await dbContext.SaveChangesAsync(
             cancellationToken);
     }
 }

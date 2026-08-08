@@ -14,6 +14,7 @@ public sealed class ConversationTitleGenerator(
 {
     private const int MaxWords = 5;
     private const int MaxLength = 60;
+    private const int MaxContextCharacters = 2000;
 
     public async Task<string?> TryGenerateTitleAsync(
         Conversation conversation,
@@ -21,30 +22,59 @@ public sealed class ConversationTitleGenerator(
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(conversation);
+        ArgumentException.ThrowIfNullOrWhiteSpace(model);
 
-        var firstUserMessage = conversation.Messages.FirstOrDefault(m => m.Role == ChatRole.User);
-        var firstAssistantMessage = conversation.Messages.FirstOrDefault(m => m.Role == ChatRole.Assistant);
+        var firstUserMessage = conversation.Messages
+            .FirstOrDefault(message => message.Role == ChatRole.User);
 
+        var firstAssistantMessage = conversation.Messages
+            .FirstOrDefault(message => message.Role == ChatRole.Assistant);
+
+        // A useful title requires both sides of the first exchange.
         if (firstUserMessage is null || firstAssistantMessage is null)
         {
             return null;
         }
 
+        var userContent = Truncate(firstUserMessage.Content);
+        var assistantContent = Truncate(firstAssistantMessage.Content);
+
+        var titleContext =
+            $"User: {userContent}\n" +
+            $"Assistant: {assistantContent}";
+
         var wrapper = new ConversationMessage(
+            conversation.Id,
             ChatRole.User,
-            $"User: {firstUserMessage.Content}\nAssistant: {firstAssistantMessage.Content}",
+            titleContext,
             timeProvider.GetUtcNow());
 
         var promptHistory = await conversationBuilder.BuildAsync(
             PromptNames.ConversationTitle,
+            conversation.Id,
             [wrapper],
             cancellationToken);
 
         var provider = providerFactory.GetProvider(model);
 
-        var rawTitle = await provider.SendAsync(model, promptHistory, cancellationToken);
+        var rawTitle = await provider.SendAsync(
+            model,
+            promptHistory,
+            cancellationToken);
 
         return Sanitize(rawTitle);
+    }
+
+    private static string Truncate(string value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+
+        if (value.Length <= MaxContextCharacters)
+        {
+            return value;
+        }
+
+        return value[..MaxContextCharacters];
     }
 
     private static string? Sanitize(string? rawTitle)
@@ -56,19 +86,54 @@ public sealed class ConversationTitleGenerator(
 
         var title = rawTitle.Trim();
 
-        // A model that ignores "no label" instructions typically prefixes with exactly this.
-        if (title.StartsWith("title:", StringComparison.OrdinalIgnoreCase))
+        // Convert multiline model output into a single line.
+        title = title.ReplaceLineEndings(" ");
+
+        // Remove common "Title:" prefix.
+        if (title.StartsWith(
+                "title:",
+                StringComparison.OrdinalIgnoreCase))
         {
             title = title["title:".Length..].Trim();
         }
 
-        // A model that ignores "no Markdown" typically wraps the whole title as a heading.
+        // Remove Markdown heading markers.
         title = title.TrimStart('#').TrimStart();
 
-        title = title.Trim('"', '\'', '“', '”', '‘', '’');
-        title = title.TrimEnd('.', '!', '?', ';', ',');
+        // Remove surrounding quotes.
+        title = title.Trim(
+            '"',
+            '\'',
+            '“',
+            '”',
+            '‘',
+            '’');
 
-        var words = title.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+        // Remove punctuation from the end.
+        title = title.TrimEnd(
+            '.',
+            '!',
+            '?',
+            ';',
+            ',',
+            ':');
+
+        // Normalize whitespace.
+        title = string.Join(
+            ' ',
+            title.Split(
+                (char[]?)null,
+                StringSplitOptions.RemoveEmptyEntries));
+
+        if (string.IsNullOrWhiteSpace(title))
+        {
+            return null;
+        }
+
+        // Maximum five words.
+        var words = title.Split(
+            ' ',
+            StringSplitOptions.RemoveEmptyEntries);
 
         if (words.Length > MaxWords)
         {
@@ -77,11 +142,14 @@ public sealed class ConversationTitleGenerator(
 
         title = string.Join(' ', words);
 
+        // Maximum approximately 60 characters.
         if (title.Length > MaxLength)
         {
             title = title[..MaxLength].TrimEnd();
         }
 
-        return string.IsNullOrWhiteSpace(title) ? null : title;
+        return string.IsNullOrWhiteSpace(title)
+            ? null
+            : title;
     }
 }

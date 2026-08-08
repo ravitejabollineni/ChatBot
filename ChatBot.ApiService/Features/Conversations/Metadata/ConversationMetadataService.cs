@@ -71,6 +71,11 @@ public sealed class ConversationMetadataService(
             if (conversation is null)
             {
                 return;
+            }          
+
+            if (conversation.Metadata.TitleStatus != ConversationTitleStatus.Generating)
+            {
+                return;
             }
 
             var title = await titleGenerator.TryGenerateTitleAsync(conversation, model, CancellationToken.None);

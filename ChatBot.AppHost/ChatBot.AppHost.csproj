@@ -1,4 +1,4 @@
-<Project Sdk="Aspire.AppHost.Sdk/13.2.4">
+﻿<Project Sdk="Aspire.AppHost.Sdk/13.4.6">
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
@@ -11,6 +11,10 @@
   <ItemGroup>
     <ProjectReference Include="..\ChatBot.ApiService\ChatBot.Api.csproj" />
     <ProjectReference Include="..\ChatBot.Web\ChatBot.Web.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Aspire.Hosting.PostgreSQL" Version="13.4.6"/>
   </ItemGroup>
 
 </Project>

@@ -13,17 +13,26 @@ public sealed class ConversationMessage
 
     public DateTimeOffset CreatedAt { get; }
 
+    public Guid ConversationId { get; }
+
     public TokenUsage? TokenUsage { get; }
 
+    private ConversationMessage()
+    {
+        
+    }
+
     public ConversationMessage(
-        ChatRole role,
-        string content,
-        DateTimeOffset createdAt,
-        TokenUsage? tokenUsage = null)
+    Guid conversationId,
+    ChatRole role,
+    string content,
+    DateTimeOffset createdAt,
+    TokenUsage? tokenUsage = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(content);
 
         Id = Guid.CreateVersion7();
+        ConversationId = conversationId;
         Role = role;
         Content = content;
         CreatedAt = createdAt;
