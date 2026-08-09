@@ -120,6 +120,8 @@ namespace ChatBot.Api.Features.Chat.Services
             var provider = providerFactory.GetProvider(request.Model);
 
             var responseBuilder = new StringBuilder(1024);
+            ChatStreamChunk? completionChunk = null;
+            var persistAttempted = false;
 
             try
             {
@@ -133,16 +135,43 @@ namespace ChatBot.Api.Features.Chat.Services
                         responseBuilder.Append(chunk.Text);
                     }
 
+                    if (chunk.IsCompleted)
+                    {
+                        // Hold the completion signal back: the client treats it as
+                        // "this turn is persisted and safe to re-fetch," so it must
+                        // not reach the wire before SaveChangesAsync below returns.
+                        completionChunk = chunk;
+                        continue;
+                    }
+
                     yield return chunk;
                 }
-            }
-            finally
-            {
+
+                persistAttempted = true;
                 await PersistConversationTurnAsync(
                     conversation,
                     userMessage,
                     request.Model,
                     responseBuilder.ToString());
+
+                if (completionChunk is not null)
+                {
+                    yield return completionChunk;
+                }
+            }
+            finally
+            {
+                // Reached on cancellation, or on an exception before the normal
+                // persistence point above. Persist whatever was generated so far,
+                // exactly once.
+                if (!persistAttempted)
+                {
+                    await PersistConversationTurnAsync(
+                        conversation,
+                        userMessage,
+                        request.Model,
+                        responseBuilder.ToString());
+                }
             }
         }
         private async Task PersistConversationTurnAsync(
