@@ -1,6 +1,7 @@
 ﻿using ChatBot.Api.AI.Prompting.Contracts;
 using ChatBot.Api.AI.Prompts;
 using ChatBot.Api.AI.Prompts.Contracts;
+using ChatBot.Api.Common.Errors;
 using ChatBot.Api.Domain.Entities;
 using ChatBot.Api.Domain.Enums;
 using ChatBot.Api.Features.Chat.Contracts;
@@ -121,30 +122,69 @@ namespace ChatBot.Api.Features.Chat.Services
 
             var responseBuilder = new StringBuilder(1024);
             ChatStreamChunk? completionChunk = null;
+            string? providerFailureMessage = null;
             var persistAttempted = false;
 
             try
             {
-                await foreach (var chunk in provider.StreamAsync(
+                // yield return cannot appear inside a try block that has a catch, so
+                // MoveNextAsync (where the provider call actually happens) is isolated in its
+                // own try/catch with no yield, and the yield stays in the try/finally below
+                // that only disposes the enumerator. Same split as ChatStreamMapper uses.
+                var enumerator = provider.StreamAsync(
                     request.Model,
                     promptHistory,
-                    cancellationToken))
+                    cancellationToken).GetAsyncEnumerator(cancellationToken);
+
+                try
                 {
-                    if (!string.IsNullOrEmpty(chunk.Text))
+                    while (true)
                     {
-                        responseBuilder.Append(chunk.Text);
-                    }
+                        ChatStreamChunk chunk;
 
-                    if (chunk.IsCompleted)
-                    {
-                        // Hold the completion signal back: the client treats it as
-                        // "this turn is persisted and safe to re-fetch," so it must
-                        // not reach the wire before SaveChangesAsync below returns.
-                        completionChunk = chunk;
-                        continue;
-                    }
+                        try
+                        {
+                            if (!await enumerator.MoveNextAsync())
+                            {
+                                break;
+                            }
 
-                    yield return chunk;
+                            chunk = enumerator.Current;
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            throw;
+                        }
+                        catch (ChatProviderException ex)
+                        {
+                            // A failed generation must not look like a normal completion:
+                            // stop pulling from the provider and fall through to persist +
+                            // report the error below, instead of yielding what came before
+                            // as if it were the whole answer.
+                            providerFailureMessage = ex.Message;
+                            break;
+                        }
+
+                        if (!string.IsNullOrEmpty(chunk.Text))
+                        {
+                            responseBuilder.Append(chunk.Text);
+                        }
+
+                        if (chunk.IsCompleted)
+                        {
+                            // Hold the completion signal back: the client treats it as
+                            // "this turn is persisted and safe to re-fetch," so it must
+                            // not reach the wire before SaveChangesAsync below returns.
+                            completionChunk = chunk;
+                            continue;
+                        }
+
+                        yield return chunk;
+                    }
+                }
+                finally
+                {
+                    await enumerator.DisposeAsync();
                 }
 
                 persistAttempted = true;
@@ -154,7 +194,14 @@ namespace ChatBot.Api.Features.Chat.Services
                     request.Model,
                     responseBuilder.ToString());
 
-                if (completionChunk is not null)
+                if (providerFailureMessage is not null)
+                {
+                    // Once the SSE response has started, a normal ProblemDetails response
+                    // can no longer replace it — this is the only way left to tell the
+                    // client the generation failed.
+                    yield return ChatStreamChunk.Error(providerFailureMessage);
+                }
+                else if (completionChunk is not null)
                 {
                     yield return completionChunk;
                 }

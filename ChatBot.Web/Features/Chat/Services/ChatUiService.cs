@@ -3,6 +3,7 @@ using ChatBot.Web.Contracts.Chat;
 using ChatBot.Web.Features.Chat.Contracts.Conversation;
 using ChatBot.Web.Features.Chat.Services.Api;
 using ChatBot.Web.Features.Chat.State;
+using Refit;
 
 namespace ChatBot.Web.Features.Chat.Services;
 
@@ -150,6 +151,18 @@ public sealed class ChatUiService(
 
             chatState.SetError(null);
         }
+        catch (ApiException ex)
+        {
+            // ex.Content is the raw ProblemDetails body the API's GlobalExceptionHandler
+            // returned; ex.Message is just Refit's generic "status code does not indicate
+            // success" text, so the ProblemDetails Title (already safe to show verbatim) is
+            // preferred whenever the body parses.
+            var problem = ApiProblemDetailsReader.TryRead(ex.Content);
+
+            Console.WriteLine($"Unable to send message: {(int)ex.StatusCode} {problem?.Title ?? ex.Message}");
+            chatState.SetError(problem?.Title ?? "Unable to send that message. Please try again.");
+            throw;
+        }
         catch (Exception ex)
         {
             Console.WriteLine($"Unable to send message: {ex.Message}");
@@ -203,6 +216,12 @@ public sealed class ChatUiService(
         var pending = new StringBuilder();
         var lastFlush = DateTime.UtcNow;
 
+        // Set when the server reports a provider failure via an in-band SSE error chunk
+        // (see ChatStreamChunk.IsError) rather than aborting the connection. Not an
+        // exception, so it flows through the same success-path cleanup below instead of
+        // the catch blocks.
+        string? streamErrorMessage = null;
+
         try
         {
             await foreach (var chunk in chatStreamClient.StreamMessageAsync(
@@ -212,6 +231,11 @@ public sealed class ChatUiService(
                     message),
                 cancellationToken))
             {
+                if (chunk.IsError)
+                {
+                    streamErrorMessage = chunk.ErrorMessage;
+                }
+
                 if (!string.IsNullOrEmpty(chunk.Text))
                 {
                     pending.Append(chunk.Text);
@@ -230,6 +254,16 @@ public sealed class ChatUiService(
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             // Expected: the user clicked Cancel. Not an error.
+        }
+        catch (HttpRequestException ex)
+        {
+            // Only ChatStreamClient's pre-stream status check (a ProblemDetails response
+            // received before any SSE bytes went out) throws this, with ex.Message already set
+            // to the ProblemDetails Title. A break after the 200 response has started surfaces
+            // as a different exception from the SSE parser and falls through to the generic
+            // catch below - there is no ProblemDetails body to read at that point.
+            Console.WriteLine($"Unable to stream message: {(int?)ex.StatusCode} {ex.Message}");
+            chatState.SetError(ex.Message);
         }
         catch (Exception ex)
         {
@@ -261,6 +295,12 @@ public sealed class ChatUiService(
 
                     chatState.CompleteGeneration(conversation);
                     chatState.UpsertConversationSummary(ToSummary(conversation));
+
+                    if (streamErrorMessage is not null)
+                    {
+                        Console.WriteLine($"Streaming failed: {streamErrorMessage}");
+                        chatState.SetError("The response was interrupted. Please try again.");
+                    }
 
                     // Title generation is scheduled server-side but runs detached, well after
                     // this response — there's no push channel back, so if it hasn't landed yet

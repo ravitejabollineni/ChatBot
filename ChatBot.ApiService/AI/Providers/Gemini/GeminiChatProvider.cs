@@ -1,6 +1,7 @@
 using ChatBot.Api.AI.Common;
 using ChatBot.Api.AI.Configuration;
 using ChatBot.Api.AI.Routing;
+using ChatBot.Api.Common.Errors;
 using ChatBot.Api.Domain.Entities;
 using ChatBot.Api.Features.Chat.Contracts;
 using ChatBot.Api.Features.Chat.Models;
@@ -38,13 +39,28 @@ public sealed class GeminiChatProvider(
 
         var (systemInstruction, contents) = ChatMessageMapper.ToGeminiContents(messages);
 
-        var response = await client.Models.GenerateContentAsync(
-            model,
-            contents,
-            CreateConfig(systemInstruction),
-            cancellationToken);
+        try
+        {
+            var response = await client.Models.GenerateContentAsync(
+                model,
+                contents,
+                CreateConfig(systemInstruction),
+                cancellationToken);
 
-        return response.Text ?? string.Empty;
+            return response.Text ?? string.Empty;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            throw new ChatProviderException(
+                "The chat provider failed to generate a response.",
+                Name,
+                model,
+                ex);
+        }
     }
 
     public async IAsyncEnumerable<ChatStreamChunk> StreamAsync(
@@ -63,12 +79,47 @@ public sealed class GeminiChatProvider(
             CreateConfig(systemInstruction),
             cancellationToken);
 
-        await foreach (var chunk in stream)
+        // yield return cannot appear inside a try block that has a catch, so MoveNextAsync
+        // (where the provider call actually happens) is isolated in its own try/catch with no
+        // yield, and the yield stays in the outer try/finally that only disposes the enumerator.
+        var enumerator = stream.GetAsyncEnumerator(cancellationToken);
+
+        try
         {
-            if (!string.IsNullOrEmpty(chunk.Text))
-            {
-                yield return ChatStreamChunk.TextMessage(chunk.Text);
+            while (true)
+            {                
+                GenerateContentResponse chunk;                
+                try
+                {
+                    if (!await enumerator.MoveNextAsync())
+                    {
+                        break;
+                    }
+
+                    chunk = enumerator.Current;
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    throw new ChatProviderException(
+                        "The chat provider failed to generate a response.",
+                        Name,
+                        model,
+                        ex);
+                }
+
+                if (!string.IsNullOrEmpty(chunk.Text))
+                {
+                    yield return ChatStreamChunk.TextMessage(chunk.Text);
+                }
             }
+        }
+        finally
+        {
+            await enumerator.DisposeAsync();
         }
 
         yield return ChatStreamChunk.Completed();

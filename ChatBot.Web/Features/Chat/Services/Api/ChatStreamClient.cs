@@ -28,8 +28,20 @@ public sealed class ChatStreamClient(HttpClient httpClient)
             HttpCompletionOption.ResponseHeadersRead,
             cancellationToken);
 
-        // Fail fast on 4xx/5xx rather than trying to parse an error body as SSE.
-        response.EnsureSuccessStatusCode();
+        // Fail fast on 4xx/5xx rather than trying to parse an error body as SSE. Unlike
+        // EnsureSuccessStatusCode(), this reads the ProblemDetails body the API always sends on
+        // failure so the caller gets the real Title (e.g. "Chat provider error") instead of a
+        // generic "status code does not indicate success" message.
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
+            var problem = ApiProblemDetailsReader.TryRead(errorBody);
+
+            throw new HttpRequestException(
+                problem?.Title ?? $"Request failed with status code {(int)response.StatusCode}.",
+                inner: null,
+                statusCode: response.StatusCode);
+        }
 
         using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
 

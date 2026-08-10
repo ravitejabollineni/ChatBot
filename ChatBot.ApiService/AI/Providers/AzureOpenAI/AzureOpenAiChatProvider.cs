@@ -1,5 +1,6 @@
 ﻿using ChatBot.Api.AI.Common;
 using ChatBot.Api.AI.Routing;
+using ChatBot.Api.Common.Errors;
 using ChatBot.Api.Domain.Entities;
 using ChatBot.Api.Features.Chat.Contracts;
 using ChatBot.Api.Features.Chat.Models;
@@ -44,11 +45,26 @@ public sealed class AzureOpenAiChatProvider(
 
         var history = ChatMessageMapper.ToAiMessages(messages);
 
-        var response = await chatClient.GetResponseAsync(
-            history,
-            cancellationToken: cancellationToken);
+        try
+        {
+            var response = await chatClient.GetResponseAsync(
+                history,
+                cancellationToken: cancellationToken);
 
-        return response.Text ?? string.Empty;
+            return response.Text ?? string.Empty;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            throw new ChatProviderException(
+                "The chat provider failed to generate a response.",
+                Name,
+                model,
+                ex);
+        }
     }
 
     public IAsyncEnumerable<ChatStreamChunk> StreamAsync(string model, IReadOnlyCollection<ConversationMessage> messages, CancellationToken cancellationToken = default)
@@ -58,6 +74,10 @@ public sealed class AzureOpenAiChatProvider(
 
         var history = ChatMessageMapper.ToAiMessages(messages);
 
-        return ChatStreamMapper.ToStreamChunks(chatClient.GetStreamingResponseAsync(history,cancellationToken: cancellationToken), cancellationToken);
+        return ChatStreamMapper.ToStreamChunks(
+            chatClient.GetStreamingResponseAsync(history, cancellationToken: cancellationToken),
+            Name,
+            model,
+            cancellationToken);
     }
 }

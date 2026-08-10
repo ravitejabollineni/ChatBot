@@ -42,6 +42,13 @@
 
             message = string.Empty;
         }
+        catch (Exception)
+        {
+            // ChatUiService already surfaced a user-facing message via ChatState.SetError and
+            // rethrows only so callers know the send failed. Swallow it here: letting it escape
+            // this @onclick handler would otherwise crash the Blazor Server circuit. The typed
+            // message is deliberately left in place so the user doesn't lose it.
+        }
         finally
         {
             isBusy = false;

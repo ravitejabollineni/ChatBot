@@ -1,4 +1,5 @@
-﻿using ChatBot.Api.Domain.Entities;
+﻿using ChatBot.Api.Common.Errors;
+using ChatBot.Api.Domain.Entities;
 using ChatBot.Api.Features.Conversations.Contracts;
 using ChatBot.Api.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -48,8 +49,7 @@ public sealed class ConversationService(
 
         if (conversation is null)
         {
-            throw new InvalidOperationException(
-                $"Conversation '{conversationId}' was not found.");
+            throw new ConversationNotFoundException(conversationId);
         }
 
         return conversation;

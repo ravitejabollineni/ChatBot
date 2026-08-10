@@ -1,4 +1,5 @@
 using ChatBot.Api.AI.DependencyInjection;
+using ChatBot.Api.Common.Errors;
 using ChatBot.Api.Domain.Enums;
 using ChatBot.Api.Infrastructure.Persistence;
 using FastEndpoints;
@@ -12,7 +13,7 @@ builder.AddServiceDefaults();
 
 // Add services to the container.
 builder.Services.AddProblemDetails();
-
+builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 builder.Services.AddOpenApi();
 
 builder.Services.AddFastEndpoints();

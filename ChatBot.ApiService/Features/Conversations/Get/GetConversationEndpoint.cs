@@ -1,4 +1,6 @@
-﻿using ChatBot.Api.Features.Conversations.Contracts;
+﻿using ChatBot.Api.Common.Errors;
+using ChatBot.Api.Domain.Entities;
+using ChatBot.Api.Features.Conversations.Contracts;
 using ChatBot.Api.Features.Conversations.Get;
 using FastEndpoints;
 
@@ -20,15 +22,9 @@ public sealed class GetConversationEndpoint(
         CancellationToken ct)
     {
         var conversation =
-            await service.GetAsync(
+            await service.GetRequiredAsync(
                 request.ConversationId,
                 ct);
-
-        if (conversation is null)
-        {
-            await Send.NotFoundAsync(ct);
-            return;
-        }
 
         await Send.OkAsync(
             conversation.ToResponse(),

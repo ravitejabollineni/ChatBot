@@ -1,6 +1,7 @@
 using ChatBot.Api.AI.Common;
 using ChatBot.Api.AI.Configuration;
 using ChatBot.Api.AI.Routing;
+using ChatBot.Api.Common.Errors;
 using ChatBot.Api.Domain.Entities;
 using ChatBot.Api.Features.Chat.Contracts;
 using ChatBot.Api.Features.Chat.Models;
@@ -57,12 +58,27 @@ public sealed class OllamaChatProvider(
         ArgumentException.ThrowIfNullOrWhiteSpace(model);
         ArgumentNullException.ThrowIfNull(messages);
 
-        var response = await chatClient.GetResponseAsync(
-            ChatMessageMapper.ToAiMessages(messages),
-            CreateChatOptions(model),
-            cancellationToken);
+        try
+        {
+            var response = await chatClient.GetResponseAsync(
+                ChatMessageMapper.ToAiMessages(messages),
+                CreateChatOptions(model),
+                cancellationToken);
 
-        return StripReasoning(response.Text);
+            return StripReasoning(response.Text);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            throw new ChatProviderException(
+                "The chat provider failed to generate a response.",
+                Name,
+                model,
+                ex);
+        }
     }
 
     private static string StripReasoning(string? text)
@@ -103,6 +119,8 @@ public sealed class OllamaChatProvider(
                 history,
                 CreateChatOptions(model),
                 cancellationToken),
+            Name,
+            model,
             cancellationToken);
     }
 
