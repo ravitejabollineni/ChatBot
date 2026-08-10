@@ -110,6 +110,17 @@ public sealed class ChatUiService(
 
     public async Task LoadConversationAsync(Guid conversationId)
     {
+        // Switching away from a different conversation that's still generating cancels it,
+        // the same way StartNewChat does — the app only ever supports one active stream, so
+        // there is nothing to leave running in the background. EndGeneration is called here
+        // rather than left to the abandoned stream's own finally, which is (correctly) gated on
+        // its bound conversation id and will no-op once this switch changes SelectedConversationId.
+        if (chatState.IsGenerating && chatState.SelectedConversationId != conversationId)
+        {
+            CancelGeneration();
+            chatState.EndGeneration();
+        }
+
         try
         {
             var conversation =
@@ -231,6 +242,16 @@ public sealed class ChatUiService(
                     message),
                 cancellationToken))
             {
+                // A New Chat or conversation-switch mid-stream changes SelectedConversationId out
+                // from under this loop before its own cancellation has actually landed. Once that
+                // happens this stream is abandoned — keep draining it (so the enumerator unwinds
+                // cleanly once cancellation does land) but never mutate ChatState again, since it
+                // now belongs to a different (or no) conversation.
+                if (chatState.SelectedConversationId != boundConversationId)
+                {
+                    continue;
+                }
+
                 if (chunk.IsError)
                 {
                     streamErrorMessage = chunk.ErrorMessage;

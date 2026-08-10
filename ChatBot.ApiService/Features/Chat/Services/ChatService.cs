@@ -192,7 +192,8 @@ namespace ChatBot.Api.Features.Chat.Services
                     conversation,
                     userMessage,
                     request.Model,
-                    responseBuilder.ToString());
+                    responseBuilder.ToString(),
+                    isPartial: providerFailureMessage is not null);
 
                 if (providerFailureMessage is not null)
                 {
@@ -213,11 +214,15 @@ namespace ChatBot.Api.Features.Chat.Services
                 // exactly once.
                 if (!persistAttempted)
                 {
+                    // Reached via cancellation or an exception before the normal completion
+                    // path above ran — this turn never reached a genuine completion, so
+                    // whatever text was generated is always partial.
                     await PersistConversationTurnAsync(
                         conversation,
                         userMessage,
                         request.Model,
-                        responseBuilder.ToString());
+                        responseBuilder.ToString(),
+                        isPartial: true);
                 }
             }
         }
@@ -225,7 +230,8 @@ namespace ChatBot.Api.Features.Chat.Services
         Conversation conversation,
         ConversationMessage userMessage,
         string model,
-        string assistantResponse)
+        string assistantResponse,
+        bool isPartial = false)
         {
             // Persist even if the HTTP request has already been cancelled.
             var persistenceCancellation = CancellationToken.None;
@@ -250,7 +256,8 @@ namespace ChatBot.Api.Features.Chat.Services
         ChatRole.Assistant,
         assistantResponse,
         timeProvider.GetUtcNow(),
-        tokenUsage);
+        tokenUsage,
+        isPartial);
 
                 conversation.AddMessage(
                     assistantMessage,

@@ -22,6 +22,13 @@
         }
     </div>
 
+    @if (!IsUser && Message.IsPartial)
+    {
+        <div class="message-bubble__partial-notice">
+            <i class="bi bi-exclamation-triangle"></i> Response was interrupted
+        </div>
+    }
+
     @if (!IsUser && Message.TokenUsage is not null)
     {
         <TokenUsage Usage="Message.TokenUsage" />

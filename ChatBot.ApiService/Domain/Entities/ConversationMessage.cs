@@ -17,9 +17,11 @@ public sealed class ConversationMessage
 
     public TokenUsage? TokenUsage { get; }
 
+    public bool IsPartial { get; }
+
     private ConversationMessage()
     {
-        
+
     }
 
     public ConversationMessage(
@@ -27,7 +29,8 @@ public sealed class ConversationMessage
     ChatRole role,
     string content,
     DateTimeOffset createdAt,
-    TokenUsage? tokenUsage = null)
+    TokenUsage? tokenUsage = null,
+    bool isPartial = false)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(content);
 
@@ -37,5 +40,6 @@ public sealed class ConversationMessage
         Content = content;
         CreatedAt = createdAt;
         TokenUsage = tokenUsage;
+        IsPartial = isPartial;
     }
 }

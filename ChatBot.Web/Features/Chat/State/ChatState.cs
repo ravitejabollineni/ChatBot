@@ -200,7 +200,8 @@ public sealed class ChatState
             Role: "user",
             Content: content,
             CreatedAt: DateTimeOffset.UtcNow,
-            TokenUsage: null);
+            TokenUsage: null,
+            IsPartial: false);
 
         CurrentConversation = CurrentConversation with
         {

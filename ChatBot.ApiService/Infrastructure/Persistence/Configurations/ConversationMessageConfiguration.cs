@@ -35,6 +35,10 @@ public sealed class ConversationMessageConfiguration
             .HasColumnName("created_at")
             .IsRequired();
 
+        builder.Property(x => x.IsPartial)
+            .HasColumnName("is_partial")
+            .IsRequired();
+
         builder.ComplexProperty(
             x => x.TokenUsage,
             tokenUsage =>

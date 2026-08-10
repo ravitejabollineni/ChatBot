@@ -7,4 +7,5 @@ public sealed record MessageResponse(
     string Role,
     string Content,
     DateTimeOffset CreatedAt,
-    TokenUsageResponse? TokenUsage);
+    TokenUsageResponse? TokenUsage,
+    bool IsPartial);
