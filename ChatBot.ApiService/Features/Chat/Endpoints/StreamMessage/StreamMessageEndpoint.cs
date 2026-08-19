@@ -24,8 +24,17 @@ public sealed class StreamMessageEndpoint(IChatService chatService): Endpoint<St
             clearDefaults: true);
     }
 
-    public override Task HandleAsync(
+    public override async Task HandleAsync(
         StreamMessageRequest request,
         CancellationToken ct)
-        => Send.EventStreamAsync(EventName, chatService.StreamAsync( new ChatRequest(request.ConversationId, request.Model, request.Message), ct), ct);
+    {
+        // Awaited here, before Send.EventStreamAsync starts the SSE response, so a rejection
+        // (e.g. context-too-large) surfaces as a normal 400 ProblemDetails instead of being
+        // stranded inside an already-committed 200 SSE stream.
+        var preparedContext = await chatService.PrepareStreamAsync(
+            new ChatRequest(request.ConversationId, request.Model, request.Message),
+            ct);
+
+        await Send.EventStreamAsync(EventName, chatService.StreamAsync(preparedContext, ct), ct);
+    }
 }

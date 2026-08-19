@@ -21,6 +21,7 @@ namespace ChatBot.Api.Features.Chat.Services
         IChatProviderFactory providerFactory,
         IConversationMetadataService metadataService,
         ITokenManager tokenManager,
+        IChatContextManager contextManager,
         TimeProvider timeProvider)
         : IChatService
     {
@@ -40,25 +41,29 @@ namespace ChatBot.Api.Features.Chat.Services
         request.UserMessage,
         now);
 
+            var promptMessages = await conversationBuilder.BuildAsync(
+         PromptNames.Chat,
+         conversation.Id,
+         new List<ConversationMessage>(conversation.Messages) { userMessage },
+         cancellationToken);
+
+            // May throw ConversationContextTooLargeException — nothing has been mutated or
+            // persisted yet, so a rejection here leaves the conversation untouched.
+            var context = contextManager.SelectContext(promptMessages, request.Model);
+
             conversation.AddMessage(
                 userMessage,
                 now);
-
-            var history = await conversationBuilder.BuildAsync(
-         PromptNames.Chat,
-         conversation.Id,
-         conversation.Messages,
-         cancellationToken);
 
             var provider = providerFactory.GetProvider(request.Model);
 
             var assistantResponse = await provider.SendAsync(
                 request.Model,
-                history,
+                context,
                 cancellationToken);
 
             var tokenUsage = await tokenManager.CalculateAsync(
-                conversation.Messages,
+                context,
                 assistantResponse,
                 request.Model,
                 cancellationToken);
@@ -91,7 +96,9 @@ namespace ChatBot.Api.Features.Chat.Services
                 tokenUsage);
         }
 
-        public async IAsyncEnumerable<ChatStreamChunk> StreamAsync(ChatRequest request, [EnumeratorCancellation] CancellationToken cancellationToken = default)
+        public async Task<ChatStreamContext> PrepareStreamAsync(
+            ChatRequest request,
+            CancellationToken cancellationToken = default)
         {
             ArgumentNullException.ThrowIfNull(request);
 
@@ -118,7 +125,25 @@ namespace ChatBot.Api.Features.Chat.Services
          history,
          cancellationToken);
 
-            var provider = providerFactory.GetProvider(request.Model);
+            // A plain async method, not an iterator: a rejection here (e.g.
+            // ConversationContextTooLargeException) is eagerly observable by the caller —
+            // in particular, by StreamMessageEndpoint awaiting this before it starts the SSE
+            // response — so it can still become a normal 400 ProblemDetails.
+            var context = contextManager.SelectContext(promptHistory, request.Model);
+
+            return new ChatStreamContext(conversation, userMessage, request.Model, context);
+        }
+
+        public async IAsyncEnumerable<ChatStreamChunk> StreamAsync(ChatStreamContext preparedContext, [EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {
+            ArgumentNullException.ThrowIfNull(preparedContext);
+
+            var conversation = preparedContext.Conversation;
+            var userMessage = preparedContext.UserMessage;
+            var model = preparedContext.Model;
+            var context = preparedContext.PromptContext;
+
+            var provider = providerFactory.GetProvider(model);
 
             var responseBuilder = new StringBuilder(1024);
             ChatStreamChunk? completionChunk = null;
@@ -132,8 +157,8 @@ namespace ChatBot.Api.Features.Chat.Services
                 // own try/catch with no yield, and the yield stays in the try/finally below
                 // that only disposes the enumerator. Same split as ChatStreamMapper uses.
                 var enumerator = provider.StreamAsync(
-                    request.Model,
-                    promptHistory,
+                    model,
+                    context,
                     cancellationToken).GetAsyncEnumerator(cancellationToken);
 
                 try
@@ -191,8 +216,9 @@ namespace ChatBot.Api.Features.Chat.Services
                 await PersistConversationTurnAsync(
                     conversation,
                     userMessage,
-                    request.Model,
+                    model,
                     responseBuilder.ToString(),
+                    context,
                     isPartial: providerFailureMessage is not null);
 
                 if (providerFailureMessage is not null)
@@ -220,8 +246,9 @@ namespace ChatBot.Api.Features.Chat.Services
                     await PersistConversationTurnAsync(
                         conversation,
                         userMessage,
-                        request.Model,
+                        model,
                         responseBuilder.ToString(),
+                        context,
                         isPartial: true);
                 }
             }
@@ -231,6 +258,7 @@ namespace ChatBot.Api.Features.Chat.Services
         ConversationMessage userMessage,
         string model,
         string assistantResponse,
+        IReadOnlyCollection<ConversationMessage> context,
         bool isPartial = false)
         {
             // Persist even if the HTTP request has already been cancelled.
@@ -246,7 +274,7 @@ namespace ChatBot.Api.Features.Chat.Services
             if (!string.IsNullOrWhiteSpace(assistantResponse))
             {
                 var tokenUsage = await tokenManager.CalculateAsync(
-                    conversation.Messages,
+                    context,
                     assistantResponse,
                     model,
                     persistenceCancellation);

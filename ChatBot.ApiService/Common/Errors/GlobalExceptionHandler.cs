@@ -37,6 +37,9 @@ public sealed class GlobalExceptionHandler(
             ConversationNotFoundException =>
                  (StatusCodes.Status404NotFound, "Conversation not found"),
 
+            ConversationContextTooLargeException =>
+                 (StatusCodes.Status400BadRequest, "Conversation context too large"),
+
             ChatProviderException =>
                  (StatusCodes.Status502BadGateway, "Chat provider error"),
 

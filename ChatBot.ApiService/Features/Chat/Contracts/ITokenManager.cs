@@ -7,6 +7,8 @@ public interface ITokenManager
 {
     int GetContextLimit(string model);
 
+    int EstimateTokenCount(IReadOnlyCollection<ConversationMessage> messages);
+
     Task<TokenUsage> CalculateAsync(
         IReadOnlyCollection<ConversationMessage> requestMessages,
         string assistantResponse,

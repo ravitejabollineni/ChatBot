@@ -48,14 +48,9 @@ public sealed class ChatProviderFactory(
         ArgumentException.ThrowIfNullOrWhiteSpace(model);
 
         var options = aiOptions.Value;
-        var match = options.AvailableModels.FirstOrDefault(
-            m => string.Equals(m.Model, model, StringComparison.OrdinalIgnoreCase));
-        var configuredName = !string.IsNullOrWhiteSpace(match?.Provider)
-            ? match.Provider
-            : options.DefaultProvider;
-        var providerKey = ChatProviderNames.Normalize(configuredName)
+        var providerKey = options.ResolveProviderName(model)
             ?? throw new InvalidOperationException(
-                $"Provider '{configuredName}' for model '{model}' is not a known provider. "
+                $"No known provider is configured for model '{model}'. "
                 + $"Expected one of: {string.Join(", ", ChatProviderNames.All)}.");
 
         return serviceProvider.GetKeyedService<IChatProvider>(providerKey)

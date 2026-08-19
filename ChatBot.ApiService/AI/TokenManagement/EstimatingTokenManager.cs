@@ -1,43 +1,70 @@
+using ChatBot.Api.AI.Configuration;
+using ChatBot.Api.AI.Routing;
 using ChatBot.Api.Domain.Entities;
 using ChatBot.Api.Domain.ValueObjects;
 using ChatBot.Api.Features.Chat.Contracts;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace ChatBot.Api.AI.TokenManagement;
 
 /// <summary>
-/// Estimates token counts from raw character length instead of a model-specific
-/// tokenizer. Swap this for a real tokenizer (e.g. Tiktoken) behind <see cref="ITokenManager"/>
-/// without touching callers.
+/// Estimates token counts from raw character length instead of a model-specific tokenizer.
+/// Swap this for a real tokenizer (e.g. Tiktoken) behind <see cref="ITokenManager"/> without
+/// touching callers. Context limits, by contrast, are not this class's knowledge to hardcode:
+/// they come from <see cref="AiOptions"/> (an explicit <see cref="ChatModelOption.ContextLimit"/>,
+/// or — for Ollama — the provider's own configured <see cref="OllamaOptions.NumCtx"/>), keyed
+/// off the same model/provider resolution <see cref="ChatProviderFactory"/> uses for routing.
 /// </summary>
-public sealed class EstimatingTokenManager : ITokenManager
+public sealed class EstimatingTokenManager(
+    IOptions<AiOptions> aiOptions,
+    ILogger<EstimatingTokenManager> logger) : ITokenManager
 {
     private const double CharactersPerToken = 4.0;
-    private const int DefaultContextLimit = 128_000;
 
-    private static readonly IReadOnlyDictionary<string, int> ContextLimitsByModelHint =
-        new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
-        {
-            ["gpt-5.4"] = 400_000,
-            ["gpt-5"] = 272_000,
-            ["gpt-4.1"] = 1_047_576,
-            ["gpt-4o"] = 128_000,
-            ["gpt-4"] = 8_192,
-            ["gpt-3.5"] = 16_385,
-            ["o3"] = 200_000,
-            ["o1"] = 200_000,
-        };
+    /// <summary>
+    /// Last-resort fallback when a model has neither an explicit
+    /// <see cref="ChatModelOption.ContextLimit"/> nor (for Ollama) a configured
+    /// <see cref="OllamaOptions.NumCtx"/>. Reaching this is a configuration gap, not a
+    /// supported steady state, and is always logged.
+    /// </summary>
+    private const int DefaultContextLimit = 128_000;
 
     public int GetContextLimit(string model)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(model);
 
-        var match = ContextLimitsByModelHint
-            .Where(hint => model.Contains(hint.Key, StringComparison.OrdinalIgnoreCase))
-            .OrderByDescending(hint => hint.Key.Length)
-            .Select(hint => (int?)hint.Value)
-            .FirstOrDefault();
+        var options = aiOptions.Value;
+        var explicitLimit = options.FindModel(model)?.ContextLimit;
 
-        return match ?? DefaultContextLimit;
+        if (explicitLimit is > 0)
+        {
+            return explicitLimit.Value;
+        }
+
+        var providerName = options.ResolveProviderName(model);
+
+        if (string.Equals(providerName, ChatProviderNames.Ollama, StringComparison.Ordinal)
+            && options.Providers.Ollama.NumCtx is > 0)
+        {
+            return options.Providers.Ollama.NumCtx.Value;
+        }
+
+        logger.LogWarning(
+            "No context limit configured for model '{Model}' (provider '{Provider}'); "
+            + "falling back to the default of {DefaultContextLimit} tokens.",
+            model,
+            providerName ?? "unknown",
+            DefaultContextLimit);
+
+        return DefaultContextLimit;
+    }
+
+    public int EstimateTokenCount(IReadOnlyCollection<ConversationMessage> messages)
+    {
+        ArgumentNullException.ThrowIfNull(messages);
+
+        return messages.Sum(message => EstimateTokenCount(message.Content));
     }
 
     public Task<TokenUsage> CalculateAsync(
@@ -49,8 +76,7 @@ public sealed class EstimatingTokenManager : ITokenManager
         ArgumentNullException.ThrowIfNull(requestMessages);
         ArgumentException.ThrowIfNullOrWhiteSpace(model);
 
-        var inputTokenCount = requestMessages.Sum(
-            message => EstimateTokenCount(message.Content));
+        var inputTokenCount = EstimateTokenCount(requestMessages);
 
         var outputTokenCount = EstimateTokenCount(assistantResponse);
 

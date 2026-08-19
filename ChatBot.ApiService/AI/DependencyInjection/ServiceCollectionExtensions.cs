@@ -1,6 +1,7 @@
 ﻿using Azure;
 using Azure.AI.OpenAI;
 using ChatBot.Api.AI.Configuration;
+using ChatBot.Api.AI.ContextManagement;
 using ChatBot.Api.AI.Prompting;
 using ChatBot.Api.AI.Prompting.Contracts;
 using ChatBot.Api.AI.Prompts.Contracts;
@@ -49,8 +50,12 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IConversationMetadataService, ConversationMetadataService>();
 
         services.AddSingleton<ITokenManager, EstimatingTokenManager>();
+        services.AddSingleton<IChatContextManager, ChatContextManager>();
         services.AddOptions<AiOptions>()
             .Bind(configuration.GetSection(AiOptions.SectionName))
+            .Validate(
+                o => o.ContextManagement.OutputReserveTokens >= 0,
+                "AI:ContextManagement:OutputReserveTokens must be greater than or equal to 0.")
             .Validate(
                 o => ChatProviderNames.Normalize(o.DefaultProvider) is not null,
                 $"AI:DefaultProvider must be one of: {string.Join(", ", ChatProviderNames.All)}.")
@@ -58,6 +63,9 @@ public static class ServiceCollectionExtensions
                 o => o.AvailableModels.All(
                     m => string.IsNullOrWhiteSpace(m.Provider) || ChatProviderNames.Normalize(m.Provider) is not null),
                 $"AI:AvailableModels[].Provider, when set, must be one of: {string.Join(", ", ChatProviderNames.All)}.")
+            .Validate(
+                o => o.AvailableModels.All(m => m.ContextLimit is null or > 0),
+                "AI:AvailableModels[].ContextLimit, when set, must be greater than 0.")
             .Validate(
                 o => !IsSelected(o, ChatProviderNames.Ollama)
                      || (!string.IsNullOrWhiteSpace(o.Providers.Ollama.BaseUrl)
