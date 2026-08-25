@@ -30,7 +30,7 @@ public sealed class AiOptions
     /// set, otherwise <see cref="DefaultProvider"/> — both for models with no explicit
     /// <c>Provider</c> and for a model string that isn't listed at all. Shared by
     /// <see cref="ChatBot.Api.AI.Routing.ChatProviderFactory"/> (to pick the provider) and
-    /// <see cref="ChatBot.Api.AI.TokenManagement.EstimatingTokenManager"/> (to pick that
+    /// <see cref="ChatBot.Api.AI.Metadata.ChatModelMetadataProvider"/> (to pick that
     /// provider's context-limit configuration), so the two never disagree about which
     /// provider a model resolves to.
     /// </summary>

@@ -8,12 +8,14 @@ using Microsoft.Extensions.Options;
 namespace ChatBot.Api.AI.ContextManagement;
 
 /// <summary>
-/// Stateless: every dependency (<see cref="ITokenManager"/>, <see cref="IOptions{TOptions}"/>)
-/// is itself thread-safe, and no field state is held across calls, so this is safe to
-/// register as a singleton and share across concurrent requests.
+/// Stateless: every dependency (<see cref="ITokenManager"/>,
+/// <see cref="IChatModelMetadataProvider"/>, <see cref="IOptions{TOptions}"/>) is itself
+/// thread-safe, and no field state is held across calls, so this is safe to register as a
+/// singleton and share across concurrent requests.
 /// </summary>
 public sealed class ChatContextManager(
     ITokenManager tokenManager,
+    IChatModelMetadataProvider metadataProvider,
     IOptions<AiOptions> aiOptions)
     : IChatContextManager
 {
@@ -37,7 +39,7 @@ public sealed class ChatContextManager(
         var systemMessage = hasSystemMessage ? ordered[0] : null;
         var currentUserMessage = ordered[^1];
 
-        var contextLimit = tokenManager.GetContextLimit(model);
+        var contextLimit = metadataProvider.GetMetadata(model).ContextLimit;
         var outputReserve = aiOptions.Value.ContextManagement.OutputReserveTokens;
         var inputBudget = Math.Max(0, contextLimit - outputReserve);
 

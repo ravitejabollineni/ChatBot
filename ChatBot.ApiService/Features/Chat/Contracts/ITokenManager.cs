@@ -5,8 +5,6 @@ namespace ChatBot.Api.Features.Chat.Contracts;
 
 public interface ITokenManager
 {
-    int GetContextLimit(string model);
-
     int EstimateTokenCount(IReadOnlyCollection<ConversationMessage> messages);
 
     Task<TokenUsage> CalculateAsync(

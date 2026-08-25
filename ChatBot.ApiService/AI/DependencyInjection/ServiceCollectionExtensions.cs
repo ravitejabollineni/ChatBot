@@ -2,6 +2,7 @@
 using Azure.AI.OpenAI;
 using ChatBot.Api.AI.Configuration;
 using ChatBot.Api.AI.ContextManagement;
+using ChatBot.Api.AI.Metadata;
 using ChatBot.Api.AI.Prompting;
 using ChatBot.Api.AI.Prompting.Contracts;
 using ChatBot.Api.AI.Prompts.Contracts;
@@ -49,6 +50,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IConversationTitleGenerator, ConversationTitleGenerator>();
         services.AddScoped<IConversationMetadataService, ConversationMetadataService>();
 
+        services.AddSingleton<IChatModelMetadataProvider, ChatModelMetadataProvider>();
         services.AddSingleton<ITokenManager, EstimatingTokenManager>();
         services.AddSingleton<IChatContextManager, ChatContextManager>();
         services.AddOptions<AiOptions>()

@@ -1,3 +1,5 @@
+using ChatBot.Api.Domain.Enums;
+
 namespace ChatBot.Api.AI.Configuration;
 
 /// <summary>
@@ -14,12 +16,20 @@ namespace ChatBot.Api.AI.Configuration;
 /// deployment doesn't need to repeat it on every entry.
 /// </param>
 /// <param name="ContextLimit">
-/// The model's context window in tokens, used by <see cref="ChatBot.Api.Features.Chat.Contracts.ITokenManager"/>.
+/// The model's context window in tokens, used by
+/// <see cref="ChatBot.Api.Features.Chat.Contracts.IChatModelMetadataProvider"/>.
 /// Optional: a locally-hosted model (e.g. Ollama) that already declares its own window via
 /// <see cref="OllamaOptions.NumCtx"/> doesn't need this repeated here; it's primarily for
 /// providers with no other configured signal for it (Azure OpenAI, Gemini).
 /// </param>
+/// <param name="Capabilities">
+/// Explicit capability override, e.g. <c>"Chat, Streaming, ToolCalling"</c>. Optional: when
+/// omitted, the model gets the baseline <c>Chat | Streaming</c> every provider structurally
+/// supports. Only set this once a capability beyond that baseline (tool calling, structured
+/// output, embeddings) has actually been verified for this model.
+/// </param>
 public sealed record ChatModelOption(
     string Model,
     string? Provider = null,
-    int? ContextLimit = null);
+    int? ContextLimit = null,
+    ChatModelCapabilities? Capabilities = null);
