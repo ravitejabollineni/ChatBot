@@ -7,4 +7,7 @@ public interface IEmbeddingApi
 {
     [Post("/api/embeddings/test")]
     Task<TestEmbeddingResponse> TestEmbeddingAsync([Body] TestEmbeddingRequest request);
+
+    [Post("/api/embeddings/test-batch")]
+    Task<TestBatchEmbeddingResponse> TestBatchEmbeddingAsync([Body] TestBatchEmbeddingRequest request);
 }

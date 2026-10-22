@@ -13,48 +13,111 @@
 <MudContainer MaxWidth="MaxWidth.Medium" Class="my-8">
     <MudText Typo="Typo.h4" Class="mb-4">Embedding Test</MudText>
 
-    <MudTextField T="string"
-                  @bind-Value="text"
-                  Label="Text"
-                  Variant="Variant.Outlined"
-                  Lines="4"
-                  Disabled="isGenerating" />
+    <MudTabs Elevation="0" Rounded="true">
+        <MudTabPanel Text="Single">
+            <div class="pt-4"></div>
+            <MudTextField T="string"
+                          @bind-Value="text"
+                          Label="Text"
+                          Variant="Variant.Outlined"
+                          Lines="4"
+                          Disabled="isGenerating" />
 
-    <MudButton Variant="Variant.Filled"
-               Color="Color.Primary"
-               Class="mt-4"
-               Disabled="isGenerating"
-               OnClick="GenerateAsync">
-        @if (isGenerating)
-        {
-            <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
-        }
-        Generate Embedding
-    </MudButton>
-
-    @if (errorMessage is not null)
-    {
-        <div class="alert alert-danger mt-4" role="alert">
-            @errorMessage
-        </div>
-    }
-
-    @if (result is not null)
-    {
-        <MudPaper Class="p-4 mt-4" Outlined="true">
-            <MudText Typo="Typo.subtitle1" Color="Color.Success">Embedding generated successfully</MudText>
-            <MudText>Configured dimensions: @result.ConfiguredDimensions</MudText>
-            <MudText>Actual dimensions: @result.ActualDimensions</MudText>
-
-            <MudText Class="mt-2">Sample vector values:</MudText>
-            <ul>
-                @foreach (var value in result.SampleValues)
+            <MudButton Variant="Variant.Filled"
+                       Color="Color.Primary"
+                       Class="mt-4"
+                       Disabled="isGenerating"
+                       OnClick="GenerateAsync">
+                @if (isGenerating)
                 {
-                    <li>@value</li>
+                    <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
                 }
-            </ul>
-        </MudPaper>
-    }
+                Generate Embedding
+            </MudButton>
+
+            @if (errorMessage is not null)
+            {
+                <div class="alert alert-danger mt-4" role="alert">
+                    @errorMessage
+                </div>
+            }
+
+            @if (result is not null)
+            {
+                <MudPaper Class="p-4 mt-4" Outlined="true">
+                    <MudText Typo="Typo.subtitle1" Color="Color.Success">Embedding generated successfully</MudText>
+                    <MudText>Configured dimensions: @result.ConfiguredDimensions</MudText>
+                    <MudText>Actual dimensions: @result.ActualDimensions</MudText>
+
+                    <MudText Class="mt-2">Sample vector values:</MudText>
+                    <ul>
+                        @foreach (var value in result.SampleValues)
+                        {
+                            <li>@value</li>
+                        }
+                    </ul>
+                </MudPaper>
+            }
+        </MudTabPanel>
+
+        <MudTabPanel Text="Batch">
+            <div class="pt-4"></div>
+            @for (var i = 0; i < batchTexts.Length; i++)
+            {
+                var index = i;
+                <MudTextField T="string"
+                              @bind-Value="batchTexts[index]"
+                              Label="@($"Text {index + 1}")"
+                              Variant="Variant.Outlined"
+                              Lines="2"
+                              Class="mb-3"
+                              Disabled="isBatchGenerating" />
+            }
+
+            <MudButton Variant="Variant.Filled"
+                       Color="Color.Primary"
+                       Class="mt-2"
+                       Disabled="isBatchGenerating"
+                       OnClick="GenerateBatchAsync">
+                @if (isBatchGenerating)
+                {
+                    <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+                }
+                Generate Batch Embeddings
+            </MudButton>
+
+            @if (batchErrorMessage is not null)
+            {
+                <div class="alert alert-danger mt-4" role="alert">
+                    @batchErrorMessage
+                </div>
+            }
+
+            @if (batchResult is not null)
+            {
+                <MudPaper Class="p-4 mt-4" Outlined="true">
+                    <MudText Typo="Typo.subtitle1" Color="Color.Success">Batch embeddings generated successfully</MudText>
+                    <MudText>Input count: @batchResult.InputCount</MudText>
+                    <MudText>Output count: @batchResult.OutputCount</MudText>
+                    <MudText>Configured dimensions: @batchResult.ConfiguredDimensions</MudText>
+
+                    @foreach (var item in batchResult.Results)
+                    {
+                        <MudDivider Class="my-3" />
+                        <MudText Typo="Typo.subtitle2">#@(item.Index + 1): @item.Text</MudText>
+                        <MudText>Actual dimensions: @item.ActualDimensions</MudText>
+                        <MudText>Sample vector values (first @item.SampleValues.Count):</MudText>
+                        <ul>
+                            @foreach (var value in item.SampleValues)
+                            {
+                                <li>@value</li>
+                            }
+                        </ul>
+                    }
+                </MudPaper>
+            }
+        </MudTabPanel>
+    </MudTabs>
 </MudContainer>
 
 @code {
@@ -62,6 +125,16 @@
     private bool isGenerating;
     private string? errorMessage;
     private TestEmbeddingResponse? result;
+
+    private readonly string[] batchTexts =
+    [
+        "I am learning .NET and artificial intelligence.",
+        "Embeddings turn text into numeric vectors that capture meaning.",
+        "The weather in Hyderabad is warm and humid today."
+    ];
+    private bool isBatchGenerating;
+    private string? batchErrorMessage;
+    private TestBatchEmbeddingResponse? batchResult;
 
     private async Task GenerateAsync()
     {
@@ -90,6 +163,38 @@
         finally
         {
             isGenerating = false;
+        }
+    }
+
+    private async Task GenerateBatchAsync()
+    {
+        batchErrorMessage = null;
+        batchResult = null;
+
+        if (batchTexts.Any(string.IsNullOrWhiteSpace))
+        {
+            batchErrorMessage = "All batch texts must be non-empty.";
+            return;
+        }
+
+        isBatchGenerating = true;
+
+        try
+        {
+            batchResult = await EmbeddingApi.TestBatchEmbeddingAsync(new TestBatchEmbeddingRequest(batchTexts));
+        }
+        catch (ApiException ex)
+        {
+            var problem = ApiProblemDetailsReader.TryRead(ex.Content);
+            batchErrorMessage = problem?.Title ?? "Unable to generate the batch embeddings. Please try again.";
+        }
+        catch (Exception)
+        {
+            batchErrorMessage = "Unable to generate the batch embeddings. Please try again.";
+        }
+        finally
+        {
+            isBatchGenerating = false;
         }
     }
 }
