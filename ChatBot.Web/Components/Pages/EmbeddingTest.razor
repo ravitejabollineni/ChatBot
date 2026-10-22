@@ -1,0 +1,95 @@
+@page "/embedding-test"
+@rendermode InteractiveServer
+
+@using ChatBot.Web.Contracts.Embeddings
+@using ChatBot.Web.Features.Chat.Services.Api
+@using ChatBot.Web.Services.Api
+@using Refit
+
+@inject IEmbeddingApi EmbeddingApi
+
+<PageTitle>Embedding Test</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.Medium" Class="my-8">
+    <MudText Typo="Typo.h4" Class="mb-4">Embedding Test</MudText>
+
+    <MudTextField T="string"
+                  @bind-Value="text"
+                  Label="Text"
+                  Variant="Variant.Outlined"
+                  Lines="4"
+                  Disabled="isGenerating" />
+
+    <MudButton Variant="Variant.Filled"
+               Color="Color.Primary"
+               Class="mt-4"
+               Disabled="isGenerating"
+               OnClick="GenerateAsync">
+        @if (isGenerating)
+        {
+            <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+        }
+        Generate Embedding
+    </MudButton>
+
+    @if (errorMessage is not null)
+    {
+        <div class="alert alert-danger mt-4" role="alert">
+            @errorMessage
+        </div>
+    }
+
+    @if (result is not null)
+    {
+        <MudPaper Class="p-4 mt-4" Outlined="true">
+            <MudText Typo="Typo.subtitle1" Color="Color.Success">Embedding generated successfully</MudText>
+            <MudText>Configured dimensions: @result.ConfiguredDimensions</MudText>
+            <MudText>Actual dimensions: @result.ActualDimensions</MudText>
+
+            <MudText Class="mt-2">Sample vector values:</MudText>
+            <ul>
+                @foreach (var value in result.SampleValues)
+                {
+                    <li>@value</li>
+                }
+            </ul>
+        </MudPaper>
+    }
+</MudContainer>
+
+@code {
+    private string text = "I am learning .NET and artificial intelligence.";
+    private bool isGenerating;
+    private string? errorMessage;
+    private TestEmbeddingResponse? result;
+
+    private async Task GenerateAsync()
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return;
+        }
+
+        isGenerating = true;
+        errorMessage = null;
+        result = null;
+
+        try
+        {
+            result = await EmbeddingApi.TestEmbeddingAsync(new TestEmbeddingRequest(text));
+        }
+        catch (ApiException ex)
+        {
+            var problem = ApiProblemDetailsReader.TryRead(ex.Content);
+            errorMessage = problem?.Title ?? "Unable to generate the embedding. Please try again.";
+        }
+        catch (Exception)
+        {
+            errorMessage = "Unable to generate the embedding. Please try again.";
+        }
+        finally
+        {
+            isGenerating = false;
+        }
+    }
+}

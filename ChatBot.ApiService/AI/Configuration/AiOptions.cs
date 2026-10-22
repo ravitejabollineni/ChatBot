@@ -16,6 +16,8 @@ public sealed class AiOptions
 
     public ContextManagementOptions ContextManagement { get; init; } = new();
 
+    public EmbeddingOptions Embeddings { get; init; } = new();
+
     /// <summary>
     /// Finds the <see cref="ChatModelOption"/> registered for <paramref name="model"/> in
     /// <see cref="AvailableModels"/> (case-insensitive), if any.

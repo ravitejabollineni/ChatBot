@@ -30,7 +30,6 @@
   <ItemGroup>
     <Folder Include="Domain\Interfaces\" />
     <Folder Include="Domain\ValueObjects\" />
-    <Folder Include="AI\Abstractions\" />
     <Folder Include="AI\Extensions\" />
     <Folder Include="Infrastructure\Database\Liquibase\migrations\" />
     <Folder Include="Infrastructure\Database\Liquibase\scripts\" />

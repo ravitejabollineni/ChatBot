@@ -280,12 +280,12 @@ namespace ChatBot.Api.Features.Chat.Services
                     persistenceCancellation);
 
                 var assistantMessage = new ConversationMessage(
-        conversation.Id,
-        ChatRole.Assistant,
-        assistantResponse,
-        timeProvider.GetUtcNow(),
-        tokenUsage,
-        isPartial);
+                     conversation.Id,
+                     ChatRole.Assistant,
+                     assistantResponse,
+                     timeProvider.GetUtcNow(),
+                     tokenUsage,
+                     isPartial);
 
                 conversation.AddMessage(
                     assistantMessage,

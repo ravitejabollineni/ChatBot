@@ -90,6 +90,13 @@ public static class ServiceCollectionExtensions
                      || (!string.IsNullOrWhiteSpace(o.Providers.GeminiAi.ApiKey)
                          && !string.IsNullOrWhiteSpace(o.Providers.GeminiAi.ChatModel)),
                 "AI:Providers:GeminiAI:ApiKey and ChatModel are required when AI:DefaultProvider is 'GeminiAI'.")
+            .Validate(
+                o=> (!string.IsNullOrWhiteSpace(o.Embeddings.Provider)
+                        && ChatProviderNames.Normalize(o.Embeddings.Provider) is not null) 
+                        && !string.IsNullOrWhiteSpace(o.Embeddings.Model))
+            .Validate(
+                    o => o.Embeddings.Dimensions > 0,
+                    "AI:Embeddings:Dimensions must be greater than 0.")
             .ValidateOnStart();
 
 
@@ -104,6 +111,9 @@ public static class ServiceCollectionExtensions
 
         services.AddOptions<GeminiOptions>()
             .Bind(configuration.GetSection(GeminiOptions.SectionName));
+
+        services.AddOptions<EmbeddingOptions>()
+            .Bind(configuration.GetSection(EmbeddingOptions.SectionName));
 
         services.AddSingleton<IDeserializer>(_ =>
              new DeserializerBuilder()
@@ -241,6 +251,42 @@ public static class ServiceCollectionExtensions
                 clientOptions: clientOptions);
         });
 
+        services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(sp =>
+        {
+            var embeddingOptions = sp
+                .GetRequiredService<IOptions<EmbeddingOptions>>()
+                .Value;
+
+            var provider = ChatProviderNames.Normalize(embeddingOptions.Provider);
+
+            if (!string.Equals(provider, ChatProviderNames.AzureOpenAI, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException(
+                    $"Embedding provider '{embeddingOptions.Provider}' is not supported yet.");
+            }
+
+            var azureOptions = sp
+                .GetRequiredService<IOptions<AzureOpenAiOptions>>()
+                .Value;
+
+            var httpClient = sp
+                .GetRequiredService<IHttpClientFactory>()
+                .CreateClient("AzureOpenAI");
+
+            var azureClientOptions = new AzureOpenAIClientOptions
+            {
+                Transport = new HttpClientPipelineTransport(httpClient)
+            };
+
+            var azureClient = new AzureOpenAIClient(
+                new Uri(azureOptions.Endpoint),
+                new AzureKeyCredential(azureOptions.ApiKey),
+                azureClientOptions);
+
+            return azureClient
+                .GetEmbeddingClient(embeddingOptions.Model)
+                .AsIEmbeddingGenerator(embeddingOptions.Dimensions);
+        });
         return services;
     }
 

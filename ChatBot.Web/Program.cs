@@ -3,6 +3,7 @@ using ChatBot.Web.Components;
 using ChatBot.Web.Features.Chat.Services;
 using ChatBot.Web.Features.Chat.Services.Api;
 using ChatBot.Web.Features.Chat.State;
+using ChatBot.Web.Services.Api;
 using Microsoft.Extensions.Http.Resilience;
 using MudBlazor.Services;
 using Polly;
@@ -66,6 +67,13 @@ builder.Services
     })
     .RemoveAllResilienceHandlers();
 #pragma warning restore EXTEXP0001
+
+builder.Services
+    .AddRefitClient<IEmbeddingApi>()
+    .ConfigureHttpClient(c =>
+    {
+        c.BaseAddress = new Uri("http://api");
+    });
 
 builder.Services.AddScoped<ChatState>();
 
