@@ -21,6 +21,8 @@ public sealed class ChatBotDbContext : DbContext
     {
         base.OnModelCreating(modelBuilder);
 
+        modelBuilder.HasPostgresExtension("vector");
+
         modelBuilder.HasPostgresEnum<ChatRole>(
            name: "chat_role");
 

@@ -16,8 +16,18 @@ var postgres = builder
     .AddPostgres(
         "postgres",
         password: postgresPassword)
+    .WithImage("pgvector/pgvector")
+    .WithImageTag("pg18-trixie")
     .WithHostPort(5432)
     .WithDataVolume();
+
+// Aspire picks the data mount path from a parseable image tag; "pg18" is not, so it falls back
+// to /var/lib/postgresql/data. PostgreSQL 18+ images require the mount at /var/lib/postgresql.
+var dataMount = postgres.Resource.Annotations
+    .OfType<ContainerMountAnnotation>()
+    .Single(m => m.Target == "/var/lib/postgresql/data");
+postgres.Resource.Annotations.Remove(dataMount);
+postgres.WithVolume(dataMount.Source!, "/var/lib/postgresql");
 
 var database = postgres.AddDatabase("chatbot");
 

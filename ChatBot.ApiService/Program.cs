@@ -4,6 +4,7 @@ using ChatBot.Api.Domain.Enums;
 using ChatBot.Api.Infrastructure.Persistence;
 using FastEndpoints;
 using Microsoft.EntityFrameworkCore;
+using Pgvector.EntityFrameworkCore;
 using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -27,6 +28,7 @@ builder.Services.AddDbContext<ChatBotDbContext>(options =>
         {
             npgsqlOptions.MapEnum<ChatRole>();
             npgsqlOptions.MapEnum<ConversationTitleStatus>();
+            npgsqlOptions.UseVector();
         });
 });
 var app = builder.Build();
